@@ -1,0 +1,107 @@
+import * as path from "path";
+import { shellExec } from "./shell-executor.ts";
+import type { ExecResult } from "./shell-executor.ts";
+import { logger } from "../utils/logger.ts";
+
+const SANDBOX_IMAGE = "codemon-sandbox:latest";
+const DOCKERFILE_PATH = path.join(import.meta.dir, "Dockerfile");
+
+let _dockerAvailable: boolean | null = null;
+let _imageBuilt: boolean | null = null;
+
+/** Check if Docker is installed and the daemon is running. */
+export async function isDockerAvailable(): Promise<boolean> {
+  if (_dockerAvailable !== null) return _dockerAvailable;
+  const result = await shellExec("docker info --format '{{.ServerVersion}}' 2>/dev/null", 5000);
+  _dockerAvailable = result.exitCode === 0 && result.stdout.trim() !== "";
+  return _dockerAvailable;
+}
+
+/** Check if the sandbox image exists locally. */
+async function isSandboxImageBuilt(): Promise<boolean> {
+  if (_imageBuilt) return true;
+  const result = await shellExec(`docker image inspect ${SANDBOX_IMAGE} --format '{{.Id}}' 2>/dev/null`, 5000);
+  _imageBuilt = result.exitCode === 0;
+  return _imageBuilt;
+}
+
+/** Build the sandbox image from the embedded Dockerfile. Idempotent. */
+export async function buildSandboxImage(): Promise<void> {
+  if (await isSandboxImageBuilt()) return;
+  logger.info("docker-executor: building sandbox image", { image: SANDBOX_IMAGE });
+  const result = await shellExec(
+    `docker build -t ${SANDBOX_IMAGE} -f '${DOCKERFILE_PATH}' '${path.dirname(DOCKERFILE_PATH)}'`,
+    300_000, // 5 min build timeout
+  );
+  if (result.exitCode !== 0) {
+    throw new Error(`Failed to build sandbox image:\n${result.stderr}`);
+  }
+  _imageBuilt = true;
+  logger.info("docker-executor: sandbox image built");
+}
+
+/**
+ * Execute a shell command inside the Docker sandbox.
+ * The project root is mounted read-write at /workspace.
+ * Network is disabled by default for security.
+ */
+export async function dockerExec(
+  command: string,
+  projectRoot: string,
+  options: {
+    timeoutMs?: number;
+    allowNetwork?: boolean;
+    readOnly?: boolean;
+    memoryLimit?: string;
+    cpuLimit?: string;
+  } = {},
+): Promise<ExecResult> {
+  const {
+    timeoutMs = 30_000,
+    allowNetwork = false,
+    readOnly = false,
+    memoryLimit = "512m",
+    cpuLimit = "1",
+  } = options;
+
+  logger.info("docker-executor: running command", { command, projectRoot });
+
+  const mountFlag = readOnly
+    ? `-v '${projectRoot}:/workspace:ro'`
+    : `-v '${projectRoot}:/workspace'`;
+
+  const networkFlag = allowNetwork ? "" : "--network none";
+  const safeCommand = command.replace(/'/g, "'\\''");
+
+  const dockerCmd = [
+    "docker run --rm",
+    "--init",
+    `--memory=${memoryLimit}`,
+    `--cpus=${cpuLimit}`,
+    networkFlag,
+    mountFlag,
+    "-w /workspace",
+    `--stop-timeout=${Math.ceil(timeoutMs / 1000)}`,
+    SANDBOX_IMAGE,
+    `bash -c '${safeCommand}'`,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  return shellExec(dockerCmd, timeoutMs + 5000); // Extra 5s for docker overhead
+}
+
+/**
+ * Auto-setup: check Docker availability and build image if needed.
+ * Returns false if Docker is not available (caller should fall back to subprocess).
+ */
+export async function ensureSandbox(): Promise<boolean> {
+  try {
+    if (!(await isDockerAvailable())) return false;
+    await buildSandboxImage();
+    return true;
+  } catch (err) {
+    logger.warn("docker-executor: sandbox setup failed", { error: String(err) });
+    return false;
+  }
+}
