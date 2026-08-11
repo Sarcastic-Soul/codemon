@@ -1,6 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
-import { shellExec } from "../safari-zone/shell-executor.ts";
+import { shellExec } from "../sandbox/shell-executor.ts";
 
 const SKIP_DIRS = new Set(["node_modules", ".git", "dist", ".next", "build", "__pycache__", ".cache", "coverage"]);
 const MAX_TREE_FILES = 150;

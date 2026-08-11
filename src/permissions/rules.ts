@@ -1,4 +1,4 @@
-import type { PermissionLevel } from "../moves/types.ts";
+import type { PermissionLevel } from "../tools/types.ts";
 import type { CodemonConfig } from "../config/defaults.ts";
 
 export type PermissionMode = "safe" | "standard" | "yolo";
@@ -11,7 +11,7 @@ export interface RuleSet {
 
 /**
  * Defines which permission levels are auto-allowed, auto-denied, or need confirmation
- * for each Poké Ball mode.
+ * for each permission mode.
  */
 export function getRuleSet(mode: PermissionMode): RuleSet {
   switch (mode) {

@@ -5,7 +5,7 @@ import {
   dbInsertMessage,
   dbLoadMessages,
   dbGetLastSessionForRegion,
-} from "../pokedex/sessions.repo.ts";
+} from "../storage/sessions.repo.ts";
 
 export interface Session {
   id: string;

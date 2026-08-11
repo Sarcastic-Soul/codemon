@@ -1,10 +1,10 @@
 import { z } from "zod";
-import { shellExec } from "../safari-zone/shell-executor.ts";
-import { dockerExec, ensureSandbox } from "../safari-zone/docker-executor.ts";
-import { getProjectRoot } from "../safari-zone/path-jail.ts";
+import { shellExec } from "../sandbox/shell-executor.ts";
+import { dockerExec, ensureSandbox } from "../sandbox/docker-executor.ts";
+import { getProjectRoot } from "../sandbox/path-jail.ts";
 import { getCurrentConfig } from "../core/provider-instance.ts";
 import { logger } from "../utils/logger.ts";
-import type { MoveDefinition } from "./types.ts";
+import type { ToolDefinition } from "./types.ts";
 
 const schema = z.object({
   command: z.string().describe("The shell command to run"),
@@ -21,7 +21,7 @@ const schema = z.object({
     .describe("Allow network access in Docker sandbox mode (ignored in subprocess mode)."),
 });
 
-export const bashMove: MoveDefinition<typeof schema> = {
+export const bashTool: ToolDefinition<typeof schema> = {
   name: "bash",
   description:
     "Execute a shell command. In standard mode runs in the project directory with a subprocess. In Docker sandbox mode runs in an isolated container with the project mounted.",

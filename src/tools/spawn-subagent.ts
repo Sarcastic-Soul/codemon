@@ -1,8 +1,8 @@
 import { z } from "zod";
-import { runToCompletion, createInMemoryStore } from "../core/battle-engine.ts";
+import { runToCompletion, createInMemoryStore } from "../core/agent-loop.ts";
 import { getCurrentProvider, getCurrentConfig } from "../core/provider-instance.ts";
-import { getProjectRoot } from "../safari-zone/path-jail.ts";
-import type { MoveDefinition } from "./types.ts";
+import { getProjectRoot } from "../sandbox/path-jail.ts";
+import type { ToolDefinition } from "./types.ts";
 
 const AVAILABLE_TOOLS = ["read_file", "list_dir", "grep", "glob", "bash", "edit_file", "write_file"] as const;
 
@@ -10,19 +10,19 @@ const schema = z.object({
   task: z
     .string()
     .describe(
-      "A clear, self-contained description of the task for the party member to complete. Include all necessary context — the party member has no memory of the current conversation.",
+      "A clear, self-contained description of the task for the sub-agent to complete. Include all necessary context — the sub-agent has no memory of the current conversation.",
     ),
   context: z
     .string()
     .optional()
     .describe(
-      "Optional additional context to inject (e.g. file contents, prior search results) so the party member doesn't need to re-fetch them.",
+      "Optional additional context to inject (e.g. file contents, prior search results) so the sub-agent doesn't need to re-fetch them.",
     ),
   allowed_tools: z
     .array(z.enum(AVAILABLE_TOOLS))
     .optional()
     .describe(
-      "Restrict which tools the party member can use. Defaults to all tools. Example: ['read_file', 'grep'] for a read-only search task.",
+      "Restrict which tools the sub-agent can use. Defaults to all tools. Example: ['read_file', 'grep'] for a read-only search task.",
     ),
   max_tokens: z
     .number()
@@ -30,19 +30,19 @@ const schema = z.object({
     .positive()
     .max(16384)
     .optional()
-    .describe("Max tokens for the party member's response. Defaults to 4096."),
+    .describe("Max tokens for the sub-agent's response. Defaults to 4096."),
 });
 
-export const spawnPartyMemberMove: MoveDefinition<typeof schema> = {
-  name: "spawn_party_member",
-  description: `Delegate a focused sub-task to a fresh Party Member — a separate agent instance with its own clean context window.
+export const spawnSubagentTool: ToolDefinition<typeof schema> = {
+  name: "spawn_subagent",
+  description: `Delegate a focused sub-task to a fresh sub-agent — a separate agent instance with its own clean context window.
 
 Use this when:
 - A task would pollute the main context with too much output (e.g. searching a large codebase)
 - You want to parallelize work (run a search while continuing the main task)
 - You need a clean, summarized result from a complex operation
 
-The party member has access to all standard moves (read_file, grep, bash, etc.) and runs in yolo mode (auto-approves all tool calls). It returns a concise summary of what it found/did.`,
+The sub-agent has access to all standard tools (read_file, grep, bash, etc.) and runs in auto-approve mode. It returns a concise summary of what it found/did.`,
   parameters: schema,
   permissionLevel: "bash", // Treat as bash-level since it can run anything
   async execute({ task, context, allowed_tools, max_tokens = 4096 }) {
@@ -59,7 +59,7 @@ The party member has access to all standard moves (read_file, grep, bash, etc.) 
     };
 
     const systemPrompt = [
-      `You are a Party Member — a focused sub-agent delegated a specific task by the main Codemon agent.`,
+      `You are a sub-agent — a focused agent instance delegated a specific task by the main Codemon agent.`,
       `Complete the task efficiently and return a concise, structured summary of your findings or actions.`,
       `Do not ask for clarification — make your best effort with the information given.`,
       `Project root: ${projectRoot}`,

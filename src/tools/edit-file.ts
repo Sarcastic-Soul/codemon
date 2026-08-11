@@ -1,10 +1,10 @@
 import * as fs from "fs";
 import { z } from "zod";
-import { jailPath } from "../safari-zone/path-jail.ts";
+import { jailPath } from "../sandbox/path-jail.ts";
 import { applyEdit } from "../utils/diff-apply.ts";
-import { dbSaveCheckpoint } from "../pokedex/checkpoints.repo.ts";
+import { dbSaveCheckpoint } from "../storage/checkpoints.repo.ts";
 import { getSession } from "../core/session.ts";
-import type { MoveDefinition } from "./types.ts";
+import type { ToolDefinition } from "./types.ts";
 
 const schema = z.object({
   path: z.string().describe("Path to the file to edit, relative to the project root"),
@@ -16,7 +16,7 @@ const schema = z.object({
   new_str: z.string().describe("The replacement string"),
 });
 
-export const editFileMove: MoveDefinition<typeof schema> = {
+export const editFileTool: ToolDefinition<typeof schema> = {
   name: "edit_file",
   description:
     "Make a targeted edit to a file by replacing old_str with new_str. Uses fuzzy matching to handle minor whitespace drift. The old_str should be specific enough to uniquely identify the location.",

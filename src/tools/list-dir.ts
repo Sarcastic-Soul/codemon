@@ -1,8 +1,8 @@
 import * as fs from "fs";
 import * as path from "path";
 import { z } from "zod";
-import { jailPath, getProjectRoot } from "../safari-zone/path-jail.ts";
-import type { MoveDefinition } from "./types.ts";
+import { jailPath, getProjectRoot } from "../sandbox/path-jail.ts";
+import type { ToolDefinition } from "./types.ts";
 
 const schema = z.object({
   path: z
@@ -55,7 +55,7 @@ function buildTree(
   return lines;
 }
 
-export const listDirMove: MoveDefinition<typeof schema> = {
+export const listDirTool: ToolDefinition<typeof schema> = {
   name: "list_dir",
   description:
     "List the contents of a directory. Shows files and subdirectories with sizes. Use recursive=true for a full tree view.",

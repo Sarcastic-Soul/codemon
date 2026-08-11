@@ -4,15 +4,15 @@ import { render } from "ink";
 import { App } from "./app.tsx";
 import { loadConfig } from "../config/load-config.ts";
 import { createRegistryProvider, parseModelString, validateApiKey } from "../providers/registry.ts";
-import { setProjectRoot } from "../safari-zone/path-jail.ts";
+import { setProjectRoot } from "../sandbox/path-jail.ts";
 import { createSession, resumeLastSession } from "../core/session.ts";
 import { setCurrentProvider } from "../core/provider-instance.ts";
-import { initDb } from "../pokedex/db.ts";
+import { initDb } from "../storage/db.ts";
 import {
   dbGetLastSessionForRegion,
   dbListSessions,
-} from "../pokedex/sessions.repo.ts";
-import { dbGetCheckpoints, dbRestoreCheckpoints } from "../pokedex/checkpoints.repo.ts";
+} from "../storage/sessions.repo.ts";
+import { dbGetCheckpoints, dbRestoreCheckpoints } from "../storage/checkpoints.repo.ts";
 import { runEvalSuite } from "../evals/runner.ts";
 import { enableDebug } from "../utils/logger.ts";
 import * as path from "path";
@@ -50,7 +50,7 @@ Options:
   --continue            Resume the most recent session for this region
   --rewind              Restore all files to their state before the last session
   --sessions            List recent sessions for this region
-  --eval                Run the automated Codemon Battle Eval suite
+  --eval                Run the automated eval suite
   --debug               Enable debug logging to ~/.codemon/debug.log
   --help                Show this help
 
@@ -91,8 +91,8 @@ const projectRoot = path.resolve(flags.region as string ?? process.cwd());
 setProjectRoot(projectRoot);
 process.chdir(projectRoot);
 
-// ─── Init Pokédex DB ──────────────────────────────────────────────────────────
-const dbPath = path.join(projectRoot, ".codemon", "pokedex.db");
+// ─── Init DB ──────────────────────────────────────────────────────────────────
+const dbPath = path.join(projectRoot, ".codemon", "sessions.db");
 initDb(dbPath);
 
 // Ensure .codemon is in .gitignore

@@ -1,12 +1,12 @@
 import type { Provider, ModelMessage } from "../providers/types.ts";
 import type { CodemonConfig } from "../config/defaults.ts";
-import { buildToolSet, getMove } from "../moves/registry.ts";
-import { checkPermission, rememberAlways, recordUserDecision } from "../pokeball/gate.ts";
+import { buildToolSet, getTool } from "../tools/registry.ts";
+import { checkPermission, rememberAlways, recordUserDecision } from "../permissions/gate.ts";
 import { ContextManager } from "./context-manager.ts";
 import { addMessage, updateTokenUsage, getMessages } from "./session.ts";
 import { logger } from "../utils/logger.ts";
 
-export type BattleEvent =
+export type AgentEvent =
   | { type: "text"; text: string }
   | { type: "tool-start"; toolName: string; toolCallId: string; args: Record<string, unknown> }
   | { type: "tool-result"; toolCallId: string; toolName: string; result: unknown }
@@ -51,16 +51,16 @@ const globalSessionStore: MessageStore = {
   updateTokenUsage,
 };
 
-// ─── Core engine loop (accepts any MessageStore) ─────────────────────────────
+// ─── Core agent loop (accepts any MessageStore) ───────────────────────────────
 
-async function* _engineCore(
+async function* _agentLoop(
   userMessage: string,
   provider: Provider,
   config: CodemonConfig,
   systemPrompt: string,
   store: MessageStore,
   toolNameFilter?: Set<string>, // optional: restrict which tools are available
-): AsyncGenerator<BattleEvent> {
+): AsyncGenerator<AgentEvent> {
   const contextManager = new ContextManager(config.maxContextTokens);
   const allTools = buildToolSet();
 
@@ -78,7 +78,7 @@ async function* _engineCore(
     const rawMessages = store.getMessages();
     const messages = contextManager.maybeTruncate(rawMessages, systemPrompt);
 
-    logger.debug("battle-engine: calling LLM", { messageCount: messages.length });
+    logger.debug("agent-loop: calling LLM", { messageCount: messages.length });
 
     let assistantText = "";
     const pendingToolCalls: Array<{ toolCallId: string; toolName: string; args: Record<string, unknown> }> = [];
@@ -127,20 +127,20 @@ async function* _engineCore(
     const toolResults: Array<{ type: "tool-result"; toolCallId: string; result: unknown }> = [];
 
     for (const tc of pendingToolCalls) {
-      const move = getMove(tc.toolName);
-      if (!move) {
-        const errResult = { error: `Unknown move: ${tc.toolName}` };
+      const toolDef = getTool(tc.toolName);
+      if (!toolDef) {
+        const errResult = { error: `Unknown tool: ${tc.toolName}` };
         toolResults.push({ type: "tool-result", toolCallId: tc.toolCallId, result: errResult });
-        yield { type: "tool-error", toolCallId: tc.toolCallId, toolName: tc.toolName, error: `Unknown move: ${tc.toolName}` };
+        yield { type: "tool-error", toolCallId: tc.toolCallId, toolName: tc.toolName, error: `Unknown tool: ${tc.toolName}` };
         continue;
       }
 
-      const decision = checkPermission(tc.toolName, move.permissionLevel, config.permissionMode);
+      const decision = checkPermission(tc.toolName, toolDef.permissionLevel, config.permissionMode);
 
       if (decision === "deny") {
-        const errResult = { error: "Blocked by Poké Ball (permission denied)" };
+        const errResult = { error: "Blocked by permission gate (permission denied)" };
         toolResults.push({ type: "tool-result", toolCallId: tc.toolCallId, result: errResult });
-        yield { type: "tool-error", toolCallId: tc.toolCallId, toolName: tc.toolName, error: "Blocked by Poké Ball" };
+        yield { type: "tool-error", toolCallId: tc.toolCallId, toolName: tc.toolName, error: "Blocked by permission gate" };
         continue;
       }
 
@@ -153,13 +153,13 @@ async function* _engineCore(
           toolName: tc.toolName,
           toolCallId: tc.toolCallId,
           args: tc.args,
-          permissionLevel: move.permissionLevel,
+          permissionLevel: toolDef.permissionLevel,
           resolve: (d: UserDecision) => { decisionHolder.value = d; permResolve(); },
         };
         await permPromise;
         const userDecision = decisionHolder.value;
-        if (userDecision === "always") rememberAlways(tc.toolName, move.permissionLevel);
-        recordUserDecision(tc.toolName, move.permissionLevel, userDecision !== "deny");
+        if (userDecision === "always") rememberAlways(tc.toolName, toolDef.permissionLevel);
+        recordUserDecision(tc.toolName, toolDef.permissionLevel, userDecision !== "deny");
         if (userDecision === "deny") {
           toolResults.push({ type: "tool-result", toolCallId: tc.toolCallId, result: { error: "User denied" } });
           yield { type: "tool-error", toolCallId: tc.toolCallId, toolName: tc.toolName, error: "User denied" };
@@ -168,8 +168,8 @@ async function* _engineCore(
       }
 
       try {
-        logger.info("executing move", { name: tc.toolName, args: tc.args });
-        const result = await move.execute(tc.args as never);
+        logger.info("executing tool", { name: tc.toolName, args: tc.args });
+        const result = await toolDef.execute(tc.args as never);
         toolResults.push({ type: "tool-result", toolCallId: tc.toolCallId, result });
         yield { type: "tool-result", toolCallId: tc.toolCallId, toolName: tc.toolName, result };
       } catch (err) {
@@ -183,28 +183,28 @@ async function* _engineCore(
   }
 }
 
-// ─── Public API ──────────────────────────────────────────────────────────────
+// ─── Public API ───────────────────────────────────────────────────────────────
 
 /** Main agent loop — uses the global session store (persisted to SQLite) */
-export async function* runBattleEngine(
+export async function* runAgent(
   userMessage: string,
   provider: Provider,
   config: CodemonConfig,
   systemPrompt: string,
-): AsyncGenerator<BattleEvent> {
-  yield* _engineCore(userMessage, provider, config, systemPrompt, globalSessionStore);
+): AsyncGenerator<AgentEvent> {
+  yield* _agentLoop(userMessage, provider, config, systemPrompt, globalSessionStore);
 }
 
 /** Sub-agent / eval loop — uses an ephemeral in-memory store */
-export async function* runBattleEngineWithStore(
+export async function* runAgentWithStore(
   userMessage: string,
   provider: Provider,
   config: CodemonConfig,
   systemPrompt: string,
   store: MessageStore,
   toolFilter?: Set<string>,
-): AsyncGenerator<BattleEvent> {
-  yield* _engineCore(userMessage, provider, config, systemPrompt, store, toolFilter);
+): AsyncGenerator<AgentEvent> {
+  yield* _agentLoop(userMessage, provider, config, systemPrompt, store, toolFilter);
 }
 
 /**
@@ -224,7 +224,7 @@ export async function runToCompletion(
   const toolsUsed: string[] = [];
   const errors: string[] = [];
 
-  for await (const event of _engineCore(userMessage, provider, config, systemPrompt, s, toolFilter)) {
+  for await (const event of _agentLoop(userMessage, provider, config, systemPrompt, s, toolFilter)) {
     if (event.type === "text") output += event.text;
     if (event.type === "tool-start") toolsUsed.push(event.toolName);
     if (event.type === "tool-error") errors.push(`${event.toolName}: ${event.error}`);

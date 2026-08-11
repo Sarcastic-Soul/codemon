@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { shellExec } from "../safari-zone/shell-executor.ts";
-import type { MoveDefinition } from "./types.ts";
+import { shellExec } from "../sandbox/shell-executor.ts";
+import type { ToolDefinition } from "./types.ts";
 
 const schema = z.object({
   pattern: z.string().describe("The search pattern (regex or literal string)"),
@@ -20,7 +20,7 @@ const schema = z.object({
   case_sensitive: z.boolean().optional().default(true),
 });
 
-export const grepMove: MoveDefinition<typeof schema> = {
+export const grepTool: ToolDefinition<typeof schema> = {
   name: "grep",
   description:
     "Search for a pattern in files using ripgrep (falls back to grep). Returns matching lines with context. Use this to find function definitions, TODO comments, imports, etc.",

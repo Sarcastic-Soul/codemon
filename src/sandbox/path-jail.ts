@@ -23,7 +23,7 @@ export function jailPath(filePath: string): string {
   const resolved = path.resolve(projectRoot, filePath);
   if (!resolved.startsWith(projectRoot + path.sep) && resolved !== projectRoot) {
     throw new Error(
-      `🔒 Poké Ball blocked: path "${filePath}" escapes the project root.\n` +
+      `🔒 Access denied: path "${filePath}" escapes the project root.\n` +
         `  Project root: ${projectRoot}\n` +
         `  Resolved to: ${resolved}`,
     );

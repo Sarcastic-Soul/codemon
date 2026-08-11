@@ -2,7 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 import { EVAL_CASES } from "./benchmarks.ts";
-import { runToCompletion, createInMemoryStore } from "../core/battle-engine.ts";
+import { runToCompletion, createInMemoryStore } from "../core/agent-loop.ts";
 import { getCurrentProvider, getCurrentConfig, setCurrentProvider } from "../core/provider-instance.ts";
 import { createRegistryProvider } from "../providers/registry.ts";
 import { loadConfig } from "../config/defaults.ts";
@@ -31,7 +31,7 @@ export async function runEvalSuite(options: { model?: string } = {}): Promise<Ev
 
   const results: EvalResult[] = [];
 
-  console.log(`\n🧪 Running Codemon Battle Eval Suite (${config.model})\n`);
+  console.log(`\n🧪 Running Eval Suite (${config.model})\n`);
 
   for (const c of EVAL_CASES) {
     const testDir = fs.mkdtempSync(path.join(tmpBase, `eval_${c.id}_`));
@@ -80,7 +80,7 @@ export async function runEvalSuite(options: { model?: string } = {}): Promise<Ev
   }
 
   const passed = results.filter((r) => r.pass).length;
-  console.log(`📊 Battle Report: ${passed}/${results.length} evals passed.\n`);
+  console.log(`📊 Eval Report: ${passed}/${results.length} evals passed.\n`);
 
   return results;
 }

@@ -46,7 +46,7 @@ function ToolCallItem({ call }: { call: ToolCallEntry }) {
           <Text>{icon}</Text>
         )}
         <Text color="yellow" bold>
-          {moveName(call.toolName)}
+          {toolLabel(call.toolName)}
         </Text>
         <Text color="gray">{argSummary}</Text>
       </Box>
@@ -66,8 +66,8 @@ function ToolCallItem({ call }: { call: ToolCallEntry }) {
   );
 }
 
-function moveName(toolName: string): string {
-  const names: Record<string, string> = {
+function toolLabel(toolName: string): string {
+  const labels: Record<string, string> = {
     read_file: "READ FILE",
     write_file: "WRITE FILE",
     edit_file: "EDIT FILE",
@@ -75,8 +75,9 @@ function moveName(toolName: string): string {
     bash: "BASH",
     grep: "GREP",
     glob: "GLOB",
+    spawn_subagent: "SPAWN SUBAGENT",
   };
-  return names[toolName] ?? toolName.toUpperCase();
+  return labels[toolName] ?? toolName.toUpperCase();
 }
 
 function summarizeArgs(toolName: string, args: Record<string, unknown>): string {

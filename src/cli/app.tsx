@@ -6,9 +6,9 @@ import { ToolCallView, type ToolCallEntry } from "./components/ToolCallView.tsx"
 import { DiffView } from "./components/DiffView.tsx";
 import { PermissionPrompt } from "./components/PermissionPrompt.tsx";
 import { StatusBar } from "./components/StatusBar.tsx";
-import { runBattleEngine } from "../core/battle-engine.ts";
+import { runAgent } from "../core/agent-loop.ts";
 import { getSession, getMessages } from "../core/session.ts";
-import { loadTrainerGuide } from "../config/load-trainer-guide.ts";
+import { loadAgentRules } from "../config/load-agent-rules.ts";
 import { buildRepoIndex, formatRepoIndex } from "../core/repo-indexer.ts";
 import type { Provider } from "../providers/types.ts";
 import type { CodemonConfig } from "../config/defaults.ts";
@@ -106,7 +106,7 @@ export function App({ provider, config, projectRoot, resumed = false }: AppProps
       setMessages((prev) => [...prev, userMsg]);
 
       let assistantBuffer = "";
-      const engine = runBattleEngine(userText, provider, config, systemPrompt);
+      const engine = runAgent(userText, provider, config, systemPrompt);
 
       for await (const event of engine) {
         switch (event.type) {
@@ -259,13 +259,13 @@ export function App({ provider, config, projectRoot, resumed = false }: AppProps
 }
 
 function buildBaseSystemPrompt(config: CodemonConfig, projectRoot: string): string {
-  const trainerGuide = loadTrainerGuide(projectRoot);
+  const agentRules = loadAgentRules(projectRoot);
 
   const parts = [
     `You are Codemon, an expert AI coding assistant. You are paired with a developer working in the "${projectRoot.split("/").pop()}" project.`,
     "",
     "## Capabilities",
-    "You have the following moves (tools) available:",
+    "You have the following tools available:",
     "- **read_file**: Read any file in the project",
     "- **write_file**: Create or overwrite a file",
     "- **edit_file**: Make targeted edits to a file (preferred over write_file for existing files)",
@@ -273,22 +273,22 @@ function buildBaseSystemPrompt(config: CodemonConfig, projectRoot: string): stri
     "- **bash**: Run shell commands (git, npm, bun, tests, etc.)",
     "- **grep**: Search for patterns across the codebase",
     "- **glob**: Find files by pattern",
-    "- **spawn_party_member**: Delegate focused sub-tasks to fresh sub-agent instances",
+    "- **spawn_subagent**: Delegate focused sub-tasks to fresh sub-agent instances",
     "",
     "## Guidelines",
     "- Always read files before editing them",
     "- Prefer edit_file over write_file for existing files",
     "- Run tests after making changes when possible",
-    "- Use spawn_party_member for large codebase exploration or clean sub-tasks",
+    "- Use spawn_subagent for large codebase exploration or clean sub-tasks",
     "- Be concise in your responses — let the tools do the showing",
     "- When you're unsure about something, ask rather than guess",
     "",
-    `## Current Region`,
+    `## Working Directory`,
     `Project root: ${projectRoot}`,
   ];
 
-  if (trainerGuide) {
-    parts.push("", trainerGuide);
+  if (agentRules) {
+    parts.push("", agentRules);
   }
 
   if (config.systemPromptAppend) {

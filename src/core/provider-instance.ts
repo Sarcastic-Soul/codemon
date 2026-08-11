@@ -1,5 +1,5 @@
 /**
- * Provider singleton — allows moves (tools) to access the current LLM provider
+ * Provider singleton — allows tools to access the current LLM provider
  * without it being threaded through every function call.
  * Set once at startup in index.tsx.
  */

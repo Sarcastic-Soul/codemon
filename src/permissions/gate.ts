@@ -1,6 +1,6 @@
 import { getRuleSet, type PermissionMode } from "./rules.ts";
 import { recordDecision } from "./audit-log.ts";
-import type { PermissionLevel } from "../moves/types.ts";
+import type { PermissionLevel } from "../tools/types.ts";
 
 export type GateDecision = "allow" | "deny" | "ask";
 
@@ -15,7 +15,7 @@ function alwaysKey(toolName: string, level: PermissionLevel): string {
 }
 
 /**
- * The Poké Ball gate. Given a tool invocation, returns whether to allow, deny, or ask the user.
+ * The permission gate. Given a tool invocation, returns whether to allow, deny, or ask the user.
  */
 export function checkPermission(
   toolName: string,

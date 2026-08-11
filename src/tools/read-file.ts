@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import { z } from "zod";
-import { jailPath } from "../safari-zone/path-jail.ts";
-import type { MoveDefinition } from "./types.ts";
+import { jailPath } from "../sandbox/path-jail.ts";
+import type { ToolDefinition } from "./types.ts";
 
 const schema = z.object({
   path: z.string().describe("Path to the file to read, relative to the project root"),
@@ -9,7 +9,7 @@ const schema = z.object({
   end_line: z.number().int().positive().optional().describe("End line (1-indexed, inclusive)"),
 });
 
-export const readFileMove: MoveDefinition<typeof schema> = {
+export const readFileTool: ToolDefinition<typeof schema> = {
   name: "read_file",
   description:
     "Read the contents of a file. Optionally specify start_line and end_line to read a specific range. Returns the file content as a string.",

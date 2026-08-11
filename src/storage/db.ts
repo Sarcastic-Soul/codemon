@@ -1,7 +1,7 @@
 /**
  * Pokédex — SQLite persistence layer.
  * Uses Bun's built-in bun:sqlite (zero config, zero deps).
- * DB path: <project-root>/.codemon/pokedex.db (gitignored)
+ * DB path: <project-root>/.codemon/sessions.db (gitignored)
  */
 import { Database } from "bun:sqlite";
 import * as fs from "fs";

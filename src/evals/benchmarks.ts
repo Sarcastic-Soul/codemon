@@ -1,6 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
-import { setProjectRoot } from "../safari-zone/path-jail.ts";
+import { setProjectRoot } from "../sandbox/path-jail.ts";
 
 export interface EvalCase {
   id: string;
@@ -77,21 +77,21 @@ export const EVAL_CASES: EvalCase[] = [
   },
   {
     id: "sub-agent-delegation",
-    name: "Sub-Agent Party Member Delegation Test",
-    description: "Verifies that spawn_party_member successfully delegates sub-tasks",
-    prompt: "Use spawn_party_member to search for 'SECRET_KEY' in the files and summarize findings.",
-    allowedTools: ["spawn_party_member", "grep", "read_file"],
+    name: "Sub-Agent Delegation Test",
+    description: "Verifies that spawn_subagent successfully delegates sub-tasks",
+    prompt: "Use spawn_subagent to search for 'SECRET_KEY' in the files and summarize findings.",
+    allowedTools: ["spawn_subagent", "grep", "read_file"],
     async setup(dir) {
       setProjectRoot(dir);
       fs.writeFileSync(path.join(dir, "secrets.env"), `SECRET_KEY=super_secret_123\n`, "utf8");
     },
     async verify(dir, output, toolsUsed) {
-      const usedParty = toolsUsed.includes("spawn_party_member");
+      const usedSubagent = toolsUsed.includes("spawn_subagent");
       const foundSecret = output.includes("super_secret_123") || output.toLowerCase().includes("secret");
-      if (usedParty || foundSecret) {
+      if (usedSubagent || foundSecret) {
         return { pass: true, reason: "Delegated sub-task and found target value" };
       }
-      return { pass: false, reason: "Party member delegation did not complete target search" };
+      return { pass: false, reason: "Sub-agent delegation did not complete target search" };
     },
   },
 ];

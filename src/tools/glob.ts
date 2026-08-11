@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { shellExec } from "../safari-zone/shell-executor.ts";
-import type { MoveDefinition } from "./types.ts";
+import { shellExec } from "../sandbox/shell-executor.ts";
+import type { ToolDefinition } from "./types.ts";
 
 const schema = z.object({
   pattern: z
@@ -18,7 +18,7 @@ const schema = z.object({
     .describe("Glob pattern for paths to exclude (e.g. 'node_modules/**')"),
 });
 
-export const globMove: MoveDefinition<typeof schema> = {
+export const globTool: ToolDefinition<typeof schema> = {
   name: "glob",
   description:
     "Find files matching a glob pattern within the project. Returns a list of matching file paths.",
