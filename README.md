@@ -4,7 +4,7 @@
 
 Built with **Bun**, **TypeScript**, **Ink (React TUI)**, and **Vercel AI SDK v7**.
 
-[![CI](https://github.com/your-org/codemon/actions/workflows/ci.yml/badge.svg)](https://github.com/your-org/codemon/actions/workflows/ci.yml)
+[![CI](https://github.com/Sarcastic-Soul/codemon/actions/workflows/ci.yml/badge.svg)](https://github.com/Sarcastic-Soul/codemon/actions/workflows/ci.yml)
 
 ---
 
@@ -28,6 +28,7 @@ Built with **Bun**, **TypeScript**, **Ink (React TUI)**, and **Vercel AI SDK v7*
 For detailed guides, architecture overviews, and troubleshooting help:
 - 💻 **[CLI Commands & Usage Reference](docs/cli-commands.md)**: Full options, flags, and environment variables.
 - 🏗️ **[Architecture Guide](docs/architecture.md)**: Battle Engine, Poké Ball permission gate, Moves system, Pokédex DB, and sub-agents.
+- 📦 **[Distribution & Release Guide](docs/distribution.md)**: Standalone binary compilation, CI/CD pipeline, and cross-platform releases.
 - 🛠️ **[Troubleshooting & FAQ](docs/troubleshooting.md)**: Solutions for API key errors, Docker issues, and database recovery.
 
 ---
@@ -36,16 +37,16 @@ For detailed guides, architecture overviews, and troubleshooting help:
 
 ### Option A — Pre-built Binary (Recommended)
 
-Download the latest binary for your platform from the [GitHub Releases page](https://github.com/your-org/codemon/releases):
+Download the latest binary for your platform from the [GitHub Releases page](https://github.com/Sarcastic-Soul/codemon/releases):
 
 ```bash
 # Linux (x64)
-curl -L https://github.com/your-org/codemon/releases/latest/download/codemon-linux-x64 -o codemon
+curl -L https://github.com/Sarcastic-Soul/codemon/releases/latest/download/codemon-linux-x64 -o codemon
 chmod +x codemon
 sudo mv codemon /usr/local/bin/
 
 # macOS (Apple Silicon)
-curl -L https://github.com/your-org/codemon/releases/latest/download/codemon-macos-arm64 -o codemon
+curl -L https://github.com/Sarcastic-Soul/codemon/releases/latest/download/codemon-macos-arm64 -o codemon
 chmod +x codemon
 sudo mv codemon /usr/local/bin/
 ```
@@ -53,7 +54,7 @@ sudo mv codemon /usr/local/bin/
 ### Option B — Build from Source
 
 ```bash
-git clone https://github.com/your-org/codemon.git
+git clone https://github.com/Sarcastic-Soul/codemon.git
 cd codemon
 bun install
 bun run build       # produces dist/codemon

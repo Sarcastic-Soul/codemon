@@ -95,7 +95,11 @@ bun run dev -- --rewind
    ```bash
    ps aux | grep codemon
    ```
-2. If corrupted, back up and reset the local database:
+2. Run an integrity check to verify if the SQLite database is recoverable:
+   ```bash
+   sqlite3 .codemon/pokedex.db "PRAGMA integrity_check;"
+   ```
+3. If SQLite reports unrecoverable corruption, back up and reset the database:
    ```bash
    mv .codemon/pokedex.db .codemon/pokedex.db.bak
    ```

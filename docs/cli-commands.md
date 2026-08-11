@@ -83,16 +83,16 @@ export MISTRAL_API_KEY="your-mistral-api-key"
 
 Codemon uses 8 core moves to interact with your codebase:
 
-| Move Name | Description | Permission Level |
-| :--- | :--- | :--- |
-| `read_file` | Reads contents of a file within the project region | `read` (auto-allowed in standard mode) |
-| `list_dir` | Lists directory structure and sub-paths | `read` (auto-allowed in standard mode) |
-| `grep` | Performs regex/literal search across files | `read` (auto-allowed in standard mode) |
-| `glob` | Finds files matching glob patterns | `read` (auto-allowed in standard mode) |
-| `edit_file` | Modifies file content using exact string find-and-replace | `write` (prompts user confirmation) |
-| `write_file` | Creates or completely overwrites a file | `write` (prompts user confirmation) |
-| `bash` | Executes shell commands in subprocess or Docker container | `bash` (prompts user confirmation) |
-| `spawn_party_member` | Spawns a sub-agent to explore or solve a sub-task | `read`/`write`/`bash` (inherited) |
+| Move Name | Description | Permission Level | Mode Behavior |
+| :--- | :--- | :--- | :--- |
+| `read_file` | Reads contents of a file within project root | `read` | Auto-allowed in `safe`, `standard`, and `yolo` |
+| `list_dir` | Lists directory structure and sub-paths | `read` | Auto-allowed in `safe`, `standard`, and `yolo` |
+| `grep` | Performs regex/literal search across files | `read` | Auto-allowed in `safe`, `standard`, and `yolo` |
+| `glob` | Finds files matching glob patterns | `read` | Auto-allowed in `safe`, `standard`, and `yolo` |
+| `edit_file` | Modifies file content using exact string find-and-replace | `write` | Auto-allowed in `standard` & `yolo`; prompts in `safe` |
+| `write_file` | Creates or completely overwrites a file | `write` | Auto-allowed in `standard` & `yolo`; prompts in `safe` |
+| `bash` | Executes shell commands in subprocess or Docker container | `bash` | Prompts in `safe` & `standard`; auto-allowed in `yolo` |
+| `spawn_party_member` | Spawns a sub-agent to explore or solve a sub-task (max depth: 1) | `bash` | Requires `bash` permission; sub-agent runs isolated |
 
 ---
 

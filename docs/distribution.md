@@ -36,13 +36,9 @@ Bun's compiler embeds:
 
 Result: a single ~100MB ELF/Mach-O binary that runs anywhere on the target platform with no prerequisites.
 
-### The `react-devtools-core` Stub
+### The `react-devtools-core` Dependency
 
-Ink's reconciler conditionally imports `react-devtools-core` only when `process.env.DEV === 'true'`. However Bun's bundler statically resolves all imports in referenced files. To fix this without adding the ~50MB devtools package:
-
-- A stub `node_modules/react-devtools-core/index.js` exports a no-op object.
-- `bunfig.toml` defines `process.env.DEV = 'false'` so the devtools code path is dead code.
-- The stub is never called at runtime.
+Ink's reconciler static imports `react-devtools-core` in its internal `devtools.js` module. To ensure `bun build --compile` seamlessly resolves this import in fresh installation environments (such as GitHub Actions CI runner), `react-devtools-core` is included in `package.json` under `devDependencies`.
 
 ---
 
@@ -101,7 +97,7 @@ The [ci.yml](file:///media/anish-kumar/01DBC0C115A1D4B0/Projects/codemon/.github
 
 ```bash
 # Linux x64
-curl -L https://github.com/your-org/codemon/releases/latest/download/codemon-linux-x64 -o codemon
+curl -L https://github.com/Sarcastic-Soul/codemon/releases/latest/download/codemon-linux-x64 -o codemon
 chmod +x codemon
 sudo mv codemon /usr/local/bin/
 codemon --help
@@ -110,7 +106,7 @@ codemon --help
 ### From Source
 
 ```bash
-git clone https://github.com/your-org/codemon.git
+git clone https://github.com/Sarcastic-Soul/codemon.git
 cd codemon
 bun install
 bun run build

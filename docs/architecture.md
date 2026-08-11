@@ -61,44 +61,46 @@ The Battle Engine controls the primary agent loop:
 5. Saves file checkpoints to Pokédex DB before executing file-modifying moves (`edit_file`, `write_file`).
 6. Executes approved moves and returns execution results back into the conversation context stream.
 
-### 3. Poké Ball Permission Gate (`src/pokeball/`)
-- **[rules.ts](file:///media/anish-kumar/01DBC0C115A1D4B0/Projects/codemon/src/pokeball/rules.ts)**: Configures permission matrices for `safe`, `standard`, and `yolo` modes based on `PermissionLevel` (`read`, `write`, `bash`).
-- **[gate.ts](file:///media/anish-kumar/01DBC0C115A1D4B0/Projects/codemon/src/pokeball/gate.ts)**: Evaluates requested move operations against current mode rules and session-level "Always allow" grants. If authorization is required, it suspends execution and prompts the user via TUI.
-- **[audit-log.ts](file:///media/anish-kumar/01DBC0C115A1D4B0/Projects/codemon/src/pokeball/audit-log.ts)**: Records permission decisions to log outputs.
+### 3. Poké Ball Permission Gate (`src/permissions/`)
+- **[rules.ts](file:///media/anish-kumar/01DBC0C115A1D4B0/Projects/codemon/src/permissions/rules.ts)**: Defines explicit permission matrices for security modes:
+  - **`safe`**: `autoAllow: ["read"]`, `requireConfirm: ["write", "bash"]` — prompts user before modifying any files or executing shell commands.
+  - **`standard`** (default): `autoAllow: ["read", "write"]`, `requireConfirm: ["bash"]` — auto-allows direct file edits/writes within the project root, but prompts user before executing shell commands.
+  - **`yolo`**: `autoAllow: ["read", "write", "bash"]` — auto-approves all moves without prompts.
+- **[gate.ts](file:///media/anish-kumar/01DBC0C115A1D4B0/Projects/codemon/src/permissions/gate.ts)**: Evaluates requested move operations against mode rules and session-level "Always allow" grants. If authorization is required, it suspends execution and prompts the user via TUI.
+- **[audit-log.ts](file:///media/anish-kumar/01DBC0C115A1D4B0/Projects/codemon/src/permissions/audit-log.ts)**: Records permission decisions to audit logs.
 
-### 4. Moves System & Decoupled Types (`src/moves/`)
-- **[types.ts](file:///media/anish-kumar/01DBC0C115A1D4B0/Projects/codemon/src/moves/types.ts)**: Defines the core interface contract:
-  ```ts
-  export type PermissionLevel = "read" | "write" | "bash";
+### 4. Moves System & Decoupled Types (`src/tools/`)
+- **[types.ts](file:///media/anish-kumar/01DBC0C115A1D4B0/Projects/codemon/src/tools/types.ts)**: Defines the core tool interface contract (`ToolDefinition`).
+- **[registry.ts](file:///media/anish-kumar/01DBC0C115A1D4B0/Projects/codemon/src/tools/registry.ts)**: Aggregates move instances and converts them to Vercel AI SDK `ToolSet` schema objects (`buildToolSet()`).
 
-  export interface MoveDefinition<TSchema extends z.ZodType = z.ZodType> {
-    name: string;
-    description: string;
-    parameters: TSchema;
-    permissionLevel: PermissionLevel;
-    execute(args: z.infer<TSchema>): Promise<unknown>;
-  }
-  ```
-- **[registry.ts](file:///media/anish-kumar/01DBC0C115A1D4B0/Projects/codemon/src/moves/registry.ts)**: Aggregates move instances and converts them to Vercel AI SDK `ToolSet` schema objects (`buildToolSet()`).
-- Individual move implementations ([bash.ts](file:///media/anish-kumar/01DBC0C115A1D4B0/Projects/codemon/src/moves/bash.ts), [edit-file.ts](file:///media/anish-kumar/01DBC0C115A1D4B0/Projects/codemon/src/moves/edit-file.ts), etc.) import `MoveDefinition` from `types.ts`, preventing circular dependencies.
+### 5. Safari Zone Sandboxing (`src/sandbox/`)
+- **Path Jail ([path-jail.ts](file:///media/anish-kumar/01DBC0C115A1D4B0/Projects/codemon/src/sandbox/path-jail.ts))**: Validates path parameters for structured file moves (`read_file`, `write_file`, `edit_file`, `list_dir`, `grep`, `glob`). Asserts that all resolved target paths remain within the project root directory.
+- **Default Subprocess Execution ([shell-executor.ts](file:///media/anish-kumar/01DBC0C115A1D4B0/Projects/codemon/src/sandbox/shell-executor.ts))**: `bash` commands run as host OS subprocesses within the working directory. **Security Boundary Note**: `jailPath()` does not parse or sanitize raw shell strings (e.g. `rm -rf ~`, `cd ..`). By default, human approval via the Poké Ball Gate is the boundary between the model and host filesystem.
+- **Docker Container Isolation ([docker-executor.ts](file:///media/anish-kumar/01DBC0C115A1D4B0/Projects/codemon/src/sandbox/docker-executor.ts))**: When `--sandbox docker` is specified, `bash` commands run inside an isolated container (`codemon-sandbox:latest`) with:
+  - `-v <projectRoot>:/workspace` (workspace mounted at `/workspace`)
+  - `--network none` (network disabled by default)
+  - `--memory 512m --cpus 1` (resource caps)
+  - `--init --rm` (ephemeral container execution)
 
-### 5. Safari Zone Sandboxing (`src/safari-zone/`)
-- **[path-jail.ts](file:///media/anish-kumar/01DBC0C115A1D4B0/Projects/codemon/src/safari-zone/path-jail.ts)**: Enforces path sandboxing (`jailPath()`) to prevent file access or edits outside the specified region root directory.
-- **[shell-executor.ts](file:///media/anish-kumar/01DBC0C115A1D4B0/Projects/codemon/src/safari-zone/shell-executor.ts)**: Runs subprocess shell commands safely with timeouts and output capture.
-- **[docker-executor.ts](file:///media/anish-kumar/01DBC0C115A1D4B0/Projects/codemon/src/safari-zone/docker-executor.ts)**: Provides Docker sandbox execution when `--sandbox docker` is specified, isolating command execution in container environments.
+### 6. Pokédex SQLite Persistence & Checkpoints (`src/storage/`)
+- **[db.ts](file:///media/anish-kumar/01DBC0C115A1D4B0/Projects/codemon/src/storage/db.ts)**: Manages SQLite database connection stored in `.codemon/pokedex.db` (automatically ignored in `.gitignore`).
+- **[sessions.repo.ts](file:///media/anish-kumar/01DBC0C115A1D4B0/Projects/codemon/src/storage/sessions.repo.ts)**: Stores session metadata and message logs for `--continue` session restoration and `--sessions` listing.
+- **[checkpoints.repo.ts](file:///media/anish-kumar/01DBC0C115A1D4B0/Projects/codemon/src/storage/checkpoints.repo.ts)**: Records the initial state of files before modification via `edit_file` or `write_file` moves, enabling rollback via `--rewind`.
+  - **Checkpoint Scope**: Note that `--rewind` restores files saved via direct file tool modifications. Indirect modifications made via arbitrary shell commands inside `bash` (e.g., `sed`, `rm`, `git`) are not intercepted by file checkpoint hooks.
 
-### 6. Pokédex SQLite Persistence (`src/pokedex/`)
-- **[db.ts](file:///media/anish-kumar/01DBC0C115A1D4B0/Projects/codemon/src/pokedex/db.ts)**: Manages SQLite database connection stored in `.codemon/pokedex.db`.
-- **[sessions.repo.ts](file:///media/anish-kumar/01DBC0C115A1D4B0/Projects/codemon/src/pokedex/sessions.repo.ts)**: Stores session metadata and message logs for `--continue` session restoration and `--sessions` listing.
-- **[checkpoints.repo.ts](file:///media/anish-kumar/01DBC0C115A1D4B0/Projects/codemon/src/pokedex/checkpoints.repo.ts)**: Records pre-edit file states before `edit_file` or `write_file` moves, enabling full file rollback via `--rewind`.
+### 7. Party Members / Sub-Agents (`src/tools/spawn-subagent.ts`)
+- **Isolated Context**: `spawn_subagent` delegates sub-tasks to fresh sub-agent instances with clean context windows.
+- **Recursion Hard Cap**: To prevent unbounded recursion and token burn, `spawn_subagent` is excluded from the toolset passed to sub-agents, enforcing a strict maximum recursion depth of 1 (sub-agents cannot spawn nested sub-agents).
 
-### 7. Party Members / Sub-Agents (`src/moves/spawn-party-member.ts`)
-`spawn_party_member` allows Codemon to spawn focused sub-agents with clean context windows. Sub-agents run isolated Battle Engine loops to perform deep code exploration or multi-step tasks, returning concise result summaries back to the parent agent.
+### 8. Context Budget & Truncation (`src/core/context-manager.ts`)
+- `ContextManager` estimates cumulative token counts across system prompts and message history.
+- When estimated token usage exceeds **80% of `maxContextTokens`**, a sliding window truncates history to preserve the 20 most recent messages, maintaining active conversation continuity without exceeding model context limits.
 
 ---
 
 ## 🔒 Security Design Principles
 
 1. **Explicit Permission Gates**: Write and shell operations are restricted by default in `standard` and `safe` modes.
-2. **Jailed File Access**: All path resolutions are validated through `jailPath()` to prevent path traversal attacks (`../..`).
-3. **Containerized Execution Options**: Commands can be executed inside ephemeral Docker containers using `--sandbox docker`.
+2. **Jailed File Access**: Path resolution for structured file moves is enforced through `jailPath()` to prevent traversal outside the project root (`../..`).
+3. **Containerized Execution Option**: For OS-level container sandboxing, `--sandbox docker` runs shell commands inside network-isolated Docker containers (`--network none`, restricted memory/CPU).
+
