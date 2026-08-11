@@ -4,6 +4,8 @@
 
 Built with **Bun**, **TypeScript**, **Ink (React TUI)**, and **Vercel AI SDK v7**.
 
+[![CI](https://github.com/your-org/codemon/actions/workflows/ci.yml/badge.svg)](https://github.com/your-org/codemon/actions/workflows/ci.yml)
+
 ---
 
 ## Features
@@ -17,6 +19,7 @@ Built with **Bun**, **TypeScript**, **Ink (React TUI)**, and **Vercel AI SDK v7*
 - **Party Members (Sub-Agents)**: `spawn_party_member` move delegates heavy tasks (e.g., codebase exploration) to isolated sub-agents with clean context windows.
 - **Battle Eval Suite**: Run `--eval` to evaluate agent performance across security boundaries, file edits, code search, and sub-agent delegation.
 - **Safari Zone v2 (Docker Sandbox)**: Run bash commands in isolated Docker containers with `--sandbox docker`.
+- **Single Binary Distribution**: Ships as a self-contained executable. No Node, no npm — just download and run.
 
 ---
 
@@ -31,9 +34,30 @@ For detailed guides, architecture overviews, and troubleshooting help:
 
 ## Installation & Setup
 
+### Option A — Pre-built Binary (Recommended)
+
+Download the latest binary for your platform from the [GitHub Releases page](https://github.com/your-org/codemon/releases):
+
 ```bash
-cd /path/to/codemon
+# Linux (x64)
+curl -L https://github.com/your-org/codemon/releases/latest/download/codemon-linux-x64 -o codemon
+chmod +x codemon
+sudo mv codemon /usr/local/bin/
+
+# macOS (Apple Silicon)
+curl -L https://github.com/your-org/codemon/releases/latest/download/codemon-macos-arm64 -o codemon
+chmod +x codemon
+sudo mv codemon /usr/local/bin/
+```
+
+### Option B — Build from Source
+
+```bash
+git clone https://github.com/your-org/codemon.git
+cd codemon
 bun install
+bun run build       # produces dist/codemon
+bash scripts/install.sh  # installs to /usr/local/bin or ~/.local/bin
 ```
 
 Set your provider API key:
@@ -58,35 +82,37 @@ export MISTRAL_API_KEY=your-api-key
 
 ```bash
 # Start in current directory with default model (google:gemini-2.0-flash-exp)
-bun run dev
+codemon
 
 # Use Claude Sonnet
-bun run dev -- --model anthropic:claude-sonnet-4-5
+codemon --model anthropic:claude-sonnet-4-5
 
 # Start in YOLO mode (auto-approve all tool calls)
-bun run dev -- --mode yolo
+codemon --mode yolo
 
 # Resume last session
-bun run dev -- --continue
+codemon --continue
 
 # Restore files modified during last session
-bun run dev -- --rewind
+codemon --rewind
 
 # List past sessions
-bun run dev -- --sessions
+codemon --sessions
 
 # Run in Docker sandbox mode
-bun run dev -- --sandbox docker
+codemon --sandbox docker
 
 # Run in another target directory
-bun run dev -- --region /path/to/project
+codemon --region /path/to/project
 
 # Enable debug logging to ~/.codemon/debug.log
-bun run dev -- --debug
+codemon --debug
 
 # Run automated eval benchmark suite
-bun run dev -- --eval
+codemon --eval
 ```
+
+> **Running from source**: Replace `codemon` with `bun run dev --` (e.g. `bun run dev -- --model google:gemini-2.0-flash-exp`)
 
 ---
 
@@ -101,7 +127,7 @@ bun run dev -- --eval
 - [x] Stage 7: Party Members (`spawn_party_member` sub-agents)
 - [x] Stage 8: Battle Eval Suite (`--eval` automated benchmarks)
 - [x] Stage 9: Safari Zone v2 (Docker sandbox runner via `--sandbox docker`)
-- [ ] Stage 10: Distribution (single binary compilation via `bun build --compile`)
+- [x] Stage 10: Distribution (single binary via `bun build --compile`, install script, GitHub Actions CI/CD release pipeline)
 
 ---
 

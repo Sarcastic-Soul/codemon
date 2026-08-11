@@ -1,0 +1,7 @@
+[build]
+# Ensure all required packages are bundled into the binary
+# This is the default but explicit for clarity
+
+[build.define]
+# Disable React DevTools in production builds
+"process.env.DEV" = "'false'"

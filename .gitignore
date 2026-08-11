@@ -3,8 +3,12 @@ node_modules
 
 # output
 out
-dist
+dist/
 *.tgz
+
+# Codemon session data (auto-created at runtime)
+.codemon/
+
 
 # code coverage
 coverage

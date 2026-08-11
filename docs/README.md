@@ -23,7 +23,14 @@ Welcome to the Codemon documentation. Below you will find comprehensive guides o
    - **Party Members**: Sub-agent delegation & context isolation
    - **Provider Abstraction**: Vercel AI SDK integration
 
-3. **[Troubleshooting & FAQ](troubleshooting.md)**
+3. **[Distribution & Release Guide](distribution.md)**
+   - How `bun build --compile` produces the standalone binary
+   - `react-devtools-core` stub explanation
+   - Cross-platform build script (`scripts/build-all-platforms.sh`)
+   - GitHub Actions CI/CD release pipeline
+   - Installation from binary vs. source
+
+4. **[Troubleshooting & FAQ](troubleshooting.md)**
    - API Key & Provider Configuration Errors
    - Permission Gate & Security Issues
    - Docker Sandbox Troubleshooting

@@ -1,17 +1,37 @@
 {
   "name": "codemon",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Your AI coding partner — tools are moves, the LLM is your Codemon",
   "type": "module",
   "bin": {
-    "codemon": "./src/cli/index.tsx"
+    "codemon": "./dist/codemon"
   },
   "scripts": {
     "dev": "bun run src/cli/index.tsx",
     "start": "bun run src/cli/index.tsx",
     "test": "bun test",
-    "build": "bun build --compile src/cli/index.tsx --outfile dist/codemon"
+    "build": "bun build --compile src/cli/index.tsx --outfile dist/codemon",
+    "build:all": "scripts/build-all-platforms.sh",
+    "install:local": "scripts/install.sh",
+    "typecheck": "bun x tsc --noEmit"
   },
+  "files": [
+    "dist/",
+    "src/",
+    "docs/",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "ai",
+    "coding-assistant",
+    "cli",
+    "llm",
+    "bun",
+    "typescript"
+  ],
+  "author": "",
+  "license": "MIT",
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.36",
     "@ai-sdk/google": "^4.0.39",
@@ -30,5 +50,8 @@
     "@types/diff": "^8.0.0",
     "@types/react": "^19.2.18",
     "typescript": "^5.9.3"
+  },
+  "engines": {
+    "bun": ">=1.0.0"
   }
 }
