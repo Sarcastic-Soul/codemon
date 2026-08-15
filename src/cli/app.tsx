@@ -5,15 +5,18 @@ import { ChatView } from "./components/ChatView.tsx";
 import { ToolCallView, type ToolCallEntry } from "./components/ToolCallView.tsx";
 import { DiffView } from "./components/DiffView.tsx";
 import { PermissionPrompt } from "./components/PermissionPrompt.tsx";
-import { StatusBar } from "./components/StatusBar.tsx";
+import { SidePanel } from "./components/SidePanel.tsx";
+import { ConnectorModal, type ConnectorResult } from "./components/ConnectorModal.tsx";
 import { runAgent } from "../core/agent-loop.ts";
-import { getSession, getMessages } from "../core/session.ts";
+import { getSession, getMessages, updateSessionModel } from "../core/session.ts";
 import { loadAgentRules } from "../config/load-agent-rules.ts";
 import { buildRepoIndex, formatRepoIndex } from "../core/repo-indexer.ts";
+import { createRegistryProvider, validateApiKey } from "../providers/registry.ts";
+import { dispatchCommand } from "./commands/index.ts";
 import type { Provider } from "../providers/types.ts";
 import type { CodemonConfig } from "../config/defaults.ts";
 
-interface ChatMessage {
+export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
 }
@@ -27,15 +30,19 @@ interface PendingPermission {
 }
 
 interface AppProps {
-  provider: Provider;
+  provider?: Provider;
   config: CodemonConfig;
   projectRoot: string;
   resumed?: boolean;
+  initialShowConnector?: boolean;
 }
 
-export function App({ provider, config, projectRoot, resumed = false }: AppProps) {
+export function App({ provider, config, projectRoot, resumed = false, initialShowConnector = false }: AppProps) {
   const { exit } = useApp();
-  
+  const [activeProvider, setActiveProvider] = useState<Provider | undefined>(provider);
+  const [activeModel, setActiveModel] = useState<string>(config.model);
+  const [showConnectorModal, setShowConnectorModal] = useState(initialShowConnector || !provider);
+
   // Initialize messages from existing session if resumed
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
     if (resumed) {
@@ -74,10 +81,48 @@ export function App({ provider, config, projectRoot, resumed = false }: AppProps
   const [tokenCount, setTokenCount] = useState(() => {
     try { return getSession().totalTokensUsed; } catch { return 0; }
   });
+  const [sessionId] = useState(() => {
+    try { return getSession().id; } catch { return undefined; }
+  });
 
   const [systemPrompt, setSystemPrompt] = useState<string>(() =>
     buildBaseSystemPrompt(config, projectRoot)
   );
+
+  // Build command context for the slash-command dispatcher
+  const addMessage = useCallback((msg: ChatMessage) => {
+    setMessages((prev) => [...prev, msg]);
+  }, []);
+
+  const commandContext = {
+    exit,
+    addMessage,
+    setMessages,
+    setShowConnectorModal,
+  };
+
+  // Handle provider/model selection from ConnectorModal
+  const handleConnectorSelect = useCallback((result: ConnectorResult) => {
+    const err = validateApiKey(result.provider);
+    if (err) {
+      addMessage({ role: "assistant", content: err });
+      setShowConnectorModal(false);
+      return;
+    }
+
+    try {
+      const newProvider = createRegistryProvider({ model: result.model });
+      setActiveProvider(newProvider);
+      setActiveModel(result.model);
+      updateSessionModel(result.model);
+      setShowConnectorModal(false);
+      addMessage({ role: "assistant", content: `🔌 Switched active provider to **${result.model}**` });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      addMessage({ role: "assistant", content: `❌ Failed to switch provider: ${msg}` });
+      setShowConnectorModal(false);
+    }
+  }, [addMessage]);
 
   // Build repo index asynchronously if enabled
   useEffect(() => {
@@ -95,7 +140,29 @@ export function App({ provider, config, projectRoot, resumed = false }: AppProps
 
   const handleSubmit = useCallback(
     async (userText: string) => {
-      if (!userText.trim() || isThinking) return;
+      const trimmed = userText.trim();
+      if (!trimmed || isThinking) return;
+
+      // Try slash command dispatch first
+      if (trimmed.startsWith("/")) {
+        setInput("");
+        const matched = dispatchCommand(trimmed, commandContext);
+        if (matched) return;
+        // Unknown slash command — show hint
+        addMessage({
+          role: "assistant",
+          content: `❓ Unknown command: \`${trimmed.split(" ")[0]}\`. Type **/help** to see all commands.`,
+        });
+        return;
+      }
+
+      if (!activeProvider) {
+        setInput("");
+        addMessage({ role: "assistant", content: "❌ No API key configured. Opening Provider & Model Connector..." });
+        setShowConnectorModal(true);
+        return;
+      }
+
       setInput("");
       setIsThinking(true);
       setStreamingText("");
@@ -106,7 +173,7 @@ export function App({ provider, config, projectRoot, resumed = false }: AppProps
       setMessages((prev) => [...prev, userMsg]);
 
       let assistantBuffer = "";
-      const engine = runAgent(userText, provider, config, systemPrompt);
+      const engine = runAgent(userText, activeProvider, { ...config, model: activeModel }, systemPrompt);
 
       for await (const event of engine) {
         switch (event.type) {
@@ -175,10 +242,7 @@ export function App({ provider, config, projectRoot, resumed = false }: AppProps
             break;
 
           case "error":
-            setMessages((prev) => [
-              ...prev,
-              { role: "assistant", content: `❌ Error: ${event.error.message}` },
-            ]);
+            addMessage({ role: "assistant", content: `❌ Error: ${event.error.message}` });
             break;
         }
       }
@@ -192,68 +256,75 @@ export function App({ provider, config, projectRoot, resumed = false }: AppProps
       setStreamingText("");
       setIsThinking(false);
     },
-    [isThinking, provider, config, systemPrompt],
+    [isThinking, activeProvider, activeModel, config, systemPrompt, commandContext, addMessage],
   );
 
-  useInput((input, key) => {
-    if (key.ctrl && input === "c") exit();
+  useInput((_input, key) => {
+    if (key.ctrl && _input === "c") exit();
   });
 
   return (
-    <Box flexDirection="column" height="100%">
-      {/* Header */}
-      <Box borderStyle="double" borderColor="magenta" paddingX={2} marginBottom={1}>
-        <Text bold color="magenta">
-          🐉 CODEMON — Your AI Coding Partner
-        </Text>
-        <Text dimColor>  Region: {projectRoot.split("/").pop()}</Text>
-        {resumed && <Text color="yellow">  [Resumed Session]</Text>}
-      </Box>
+    <Box flexDirection="row" width="100%" height="100%">
+      {/* Left: Chat column (flexGrow=1 fills available space) */}
+      <Box flexDirection="column" flexGrow={1} overflow="hidden" paddingRight={1}>
+        {/* Chat history */}
+        <Box flexDirection="column" flexGrow={1} overflow="hidden">
+          <ChatView messages={messages} streamingText={streamingText} />
 
-      {/* Chat history */}
-      <Box flexDirection="column" flexGrow={1} overflow="hidden">
-        <ChatView messages={messages} streamingText={streamingText} />
+          {/* Active tool calls */}
+          {toolCalls.length > 0 && <ToolCallView calls={toolCalls} />}
 
-        {/* Active tool calls */}
-        {toolCalls.length > 0 && <ToolCallView calls={toolCalls} />}
+          {/* Diff preview */}
+          {lastDiff && <DiffView unified={lastDiff.unified} filePath={lastDiff.path} />}
 
-        {/* Diff preview */}
-        {lastDiff && <DiffView unified={lastDiff.unified} filePath={lastDiff.path} />}
+          {/* Permission prompt */}
+          {pendingPermission && (
+            <PermissionPrompt
+              toolName={pendingPermission.toolName}
+              args={pendingPermission.args}
+              permissionLevel={pendingPermission.permissionLevel}
+              onDecide={pendingPermission.resolve}
+            />
+          )}
 
-        {/* Permission prompt */}
-        {pendingPermission && (
-          <PermissionPrompt
-            toolName={pendingPermission.toolName}
-            args={pendingPermission.args}
-            permissionLevel={pendingPermission.permissionLevel}
-            onDecide={pendingPermission.resolve}
-          />
+          {/* Connector Modal */}
+          {showConnectorModal && (
+            <ConnectorModal
+              currentModel={activeModel}
+              onClose={() => setShowConnectorModal(false)}
+              onSelectProviderModel={handleConnectorSelect}
+            />
+          )}
+        </Box>
+
+        {/* Input area */}
+        {!pendingPermission && !showConnectorModal && (
+          <Box borderStyle="single" borderColor={isThinking ? "yellow" : "cyan"} paddingX={1} marginTop={1}>
+            <Text color={isThinking ? "yellow" : "cyan"}>
+              {isThinking ? "⚡ " : "❯ "}
+            </Text>
+            <TextInput
+              value={input}
+              onChange={setInput}
+              onSubmit={handleSubmit}
+              placeholder={isThinking ? "thinking…" : "message Codemon  (/ for commands)"}
+            />
+          </Box>
         )}
       </Box>
 
-      {/* Input area */}
-      {!pendingPermission && (
-        <Box borderStyle="single" borderColor={isThinking ? "yellow" : "cyan"} paddingX={1} marginTop={1}>
-          <Text color={isThinking ? "yellow" : "cyan"}>
-            {isThinking ? "⚡ " : "❯ "}
-          </Text>
-          <TextInput
-            value={input}
-            onChange={setInput}
-            onSubmit={handleSubmit}
-            placeholder={isThinking ? "Codemon is thinking…" : "Talk to your Codemon…"}
-          />
-        </Box>
-      )}
-
-      {/* Status bar */}
-      <StatusBar
-        model={config.model}
-        region={projectRoot}
-        permissionMode={config.permissionMode}
-        tokenCount={tokenCount}
-        isThinking={isThinking}
-      />
+      {/* Right: Side panel (fixed 34 cols, flush right) */}
+      <Box width={34} flexShrink={0}>
+        <SidePanel
+          model={activeModel}
+          region={projectRoot}
+          permissionMode={config.permissionMode}
+          tokenCount={tokenCount}
+          isThinking={isThinking}
+          resumed={resumed}
+          sessionId={sessionId}
+        />
+      </Box>
     </Box>
   );
 }

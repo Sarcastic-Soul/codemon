@@ -7,10 +7,11 @@ This document covers common issues, error messages, and solutions when configuri
 ## 🔑 1. API Key & Provider Issues
 
 ### Error: `Missing API Key for provider <name>`
-**Cause**: The requested model provider key environment variable is not exported in your current terminal session.
+**Cause**: The requested model provider key environment variable is not exported and no stored key exists in `~/.codemon/config.json`.
 
 **Solution**:
-Export the appropriate key for your chosen provider before running Codemon:
+1. **Interactive (Recommended)**: Inside the running TUI, type `/connector` and press Enter. Select your provider and paste your API key. It will be stored securely in `~/.codemon/config.json` with `0600` POSIX mode permissions.
+2. **Environment Variable**: Alternatively, export the appropriate key in your terminal session before starting Codemon:
 
 ```bash
 # Google Gemini

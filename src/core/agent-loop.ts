@@ -6,6 +6,16 @@ import { ContextManager } from "./context-manager.ts";
 import { addMessage, updateTokenUsage, getMessages } from "./session.ts";
 import { logger } from "../utils/logger.ts";
 
+/**
+ * Convert a tool execution result to the AI SDK v7 `output` schema.
+ * SDK v7 requires: { type: "text", value: string } | { type: "json", value: JSONValue }
+ * instead of the older `result: unknown` shape.
+ */
+function toToolOutput(value: unknown): { type: "text"; value: string } | { type: "json"; value: unknown } {
+  if (typeof value === "string") return { type: "text", value };
+  return { type: "json", value: value ?? null };
+}
+
 export type AgentEvent =
   | { type: "text"; text: string }
   | { type: "tool-start"; toolName: string; toolCallId: string; args: Record<string, unknown> }
@@ -124,13 +134,18 @@ async function* _agentLoop(
     if (pendingToolCalls.length === 0) { continueLoop = false; break; }
 
     // Execute each tool call
-    const toolResults: Array<{ type: "tool-result"; toolCallId: string; result: unknown }> = [];
+    // AI SDK v7 schema: tool-result parts must use `output: {type, value}` not `result`
+    const toolResults: Array<{
+      type: "tool-result";
+      toolCallId: string;
+      toolName: string;
+      output: { type: "text"; value: string } | { type: "json"; value: unknown };
+    }> = [];
 
     for (const tc of pendingToolCalls) {
       const toolDef = getTool(tc.toolName);
       if (!toolDef) {
-        const errResult = { error: `Unknown tool: ${tc.toolName}` };
-        toolResults.push({ type: "tool-result", toolCallId: tc.toolCallId, result: errResult });
+        toolResults.push({ type: "tool-result", toolCallId: tc.toolCallId, toolName: tc.toolName, output: { type: "json", value: { error: `Unknown tool: ${tc.toolName}` } } });
         yield { type: "tool-error", toolCallId: tc.toolCallId, toolName: tc.toolName, error: `Unknown tool: ${tc.toolName}` };
         continue;
       }
@@ -138,8 +153,7 @@ async function* _agentLoop(
       const decision = checkPermission(tc.toolName, toolDef.permissionLevel, config.permissionMode);
 
       if (decision === "deny") {
-        const errResult = { error: "Blocked by permission gate (permission denied)" };
-        toolResults.push({ type: "tool-result", toolCallId: tc.toolCallId, result: errResult });
+        toolResults.push({ type: "tool-result", toolCallId: tc.toolCallId, toolName: tc.toolName, output: { type: "json", value: { error: "Blocked by permission gate (permission denied)" } } });
         yield { type: "tool-error", toolCallId: tc.toolCallId, toolName: tc.toolName, error: "Blocked by permission gate" };
         continue;
       }
@@ -161,7 +175,7 @@ async function* _agentLoop(
         if (userDecision === "always") rememberAlways(tc.toolName, toolDef.permissionLevel);
         recordUserDecision(tc.toolName, toolDef.permissionLevel, userDecision !== "deny");
         if (userDecision === "deny") {
-          toolResults.push({ type: "tool-result", toolCallId: tc.toolCallId, result: { error: "User denied" } });
+          toolResults.push({ type: "tool-result", toolCallId: tc.toolCallId, toolName: tc.toolName, output: { type: "json", value: { error: "User denied" } } });
           yield { type: "tool-error", toolCallId: tc.toolCallId, toolName: tc.toolName, error: "User denied" };
           continue;
         }
@@ -169,12 +183,13 @@ async function* _agentLoop(
 
       try {
         logger.info("executing tool", { name: tc.toolName, args: tc.args });
-        const result = await toolDef.execute(tc.args as never);
-        toolResults.push({ type: "tool-result", toolCallId: tc.toolCallId, result });
-        yield { type: "tool-result", toolCallId: tc.toolCallId, toolName: tc.toolName, result };
+        const rawResult = await toolDef.execute(tc.args as never);
+        const output = toToolOutput(rawResult);
+        toolResults.push({ type: "tool-result", toolCallId: tc.toolCallId, toolName: tc.toolName, output });
+        yield { type: "tool-result", toolCallId: tc.toolCallId, toolName: tc.toolName, result: rawResult };
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
-        toolResults.push({ type: "tool-result", toolCallId: tc.toolCallId, result: { error: errMsg } });
+        toolResults.push({ type: "tool-result", toolCallId: tc.toolCallId, toolName: tc.toolName, output: { type: "json", value: { error: errMsg } } });
         yield { type: "tool-error", toolCallId: tc.toolCallId, toolName: tc.toolName, error: errMsg };
       }
     }

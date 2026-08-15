@@ -48,9 +48,27 @@ codemon [options]
 
 ---
 
-## 🔑 Environment Variables (BYOK)
+## 🔑 Environment Variables & `/connector` (BYOK)
 
-Codemon uses **Bring-Your-Own-Key (BYOK)** architecture via the Vercel AI SDK. Set at least one provider key before running:
+Codemon uses **Bring-Your-Own-Key (BYOK)** architecture. You can set keys via environment variables OR interactively inside the TUI using `/connector`.
+
+### Order of Precedence Hierarchy
+
+Codemon resolves provider credentials and models in the following strict order:
+
+| Priority | Source | Description | Example |
+| :--- | :--- | :--- | :--- |
+| **1 (Highest)** | **CLI Flag** | Explicit startup override | `codemon --model anthropic:claude-sonnet-4-5` |
+| **2** | **Environment Variable** | Current shell session export | `export GEMINI_API_KEY="..."` |
+| **3** | **Stored User Config** | Saved interactively via `/connector` | `~/.codemon/config.json` (`0600` POSIX mode) |
+| **4 (Lowest)** | **Built-in Default** | Default fallback | `google:gemini-2.0-flash-exp` |
+
+### Using the `/connector` Interactive Command
+
+In the running TUI prompt, type `/connector` (or `/config` / `/model`) and press `Enter`:
+1. **Select Provider**: Choose from Google Gemini, Anthropic Claude, OpenAI, or Mistral.
+2. **Enter API Key**: Paste key securely (stored in `~/.codemon/config.json` with `0600` permissions; masked as `••••••••1a4f`). Press `r` to clear a saved key.
+3. **Select Model**: Select pre-populated models or enter a custom model string. Mid-session switches update instantly!
 
 ### Provider API Keys
 

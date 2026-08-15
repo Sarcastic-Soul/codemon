@@ -2,16 +2,18 @@
 import React from "react";
 import { render } from "ink";
 import { App } from "./app.tsx";
+import { SessionPicker } from "./components/SessionPicker.tsx";
 import { loadConfig } from "../config/load-config.ts";
 import { createRegistryProvider, parseModelString, validateApiKey } from "../providers/registry.ts";
 import { setProjectRoot } from "../sandbox/path-jail.ts";
-import { createSession, resumeLastSession } from "../core/session.ts";
+import { createSession, resumeLastSession, resumeSpecificSession } from "../core/session.ts";
 import { setCurrentProvider } from "../core/provider-instance.ts";
 import { initDb } from "../storage/db.ts";
 import {
   dbGetLastSessionForRegion,
   dbListSessions,
 } from "../storage/sessions.repo.ts";
+import type { StoredSession } from "../storage/sessions.repo.ts";
 import { dbGetCheckpoints, dbRestoreCheckpoints } from "../storage/checkpoints.repo.ts";
 import { runEvalSuite } from "../evals/runner.ts";
 import { enableDebug } from "../utils/logger.ts";
@@ -53,6 +55,11 @@ Options:
   --eval                Run the automated eval suite
   --debug               Enable debug logging to ~/.codemon/debug.log
   --help                Show this help
+
+TUI Slash Commands (type while in interactive mode):
+  /connector            Open provider & API key configurator
+  /model                Alias for /connector
+  /exit, /quit, /q      Exit Codemon
 
 Supported Providers (BYOK):
   google     GEMINI_API_KEY / GOOGLE_GENERATIVE_AI_API_KEY
@@ -158,15 +165,22 @@ if (flags.rewind) {
 // ─── Validate API key ─────────────────────────────────────────────────────────
 const { provider: providerName } = parseModelString(config.model);
 const keyError = validateApiKey(providerName);
-if (keyError) { console.error(keyError); process.exit(1); }
 
-// ─── Build provider ───────────────────────────────────────────────────────────
-const provider = createRegistryProvider({ model: config.model, maxTokens: config.maxTokens });
-setCurrentProvider(provider, config);
+let provider: ReturnType<typeof createRegistryProvider> | undefined;
+let initialShowConnector = false;
 
-// ─── Session ──────────────────────────────────────────────────────────────────
+if (keyError) {
+  initialShowConnector = true;
+} else {
+  provider = createRegistryProvider({ model: config.model, maxTokens: config.maxTokens });
+  setCurrentProvider(provider, config);
+}
+
+// ─── Session / Session Picker ─────────────────────────────────────────────────
 let resumed = false;
+
 if (flags.continue) {
+  // --continue: always resume the most recent session, no picker
   const session = resumeLastSession(projectRoot);
   if (session) {
     resumed = true;
@@ -175,19 +189,71 @@ if (flags.continue) {
     console.log("ℹ️  No previous session found, starting fresh.\n");
     createSession(projectRoot, config.model);
   }
+
+  // ─── Render TUI directly (--continue skips picker) ────────────────────────
+  const { waitUntilExit } = render(
+    <App
+      provider={provider}
+      config={config}
+      projectRoot={projectRoot}
+      resumed={resumed}
+      initialShowConnector={initialShowConnector}
+    />,
+    { exitOnCtrlC: false },
+  );
+  await waitUntilExit();
+
 } else {
-  createSession(projectRoot, config.model);
+  // Check for prior sessions in this directory
+  const pastSessions: StoredSession[] = dbListSessions(projectRoot, 10);
+
+  if (pastSessions.length > 0) {
+    // ─── Phase 1: Session Picker ─────────────────────────────────────────────
+    let pickedSession: StoredSession | null = null;
+    let startNew = false;
+
+    await new Promise<void>((resolve) => {
+      const { unmount } = render(
+        <SessionPicker
+          sessions={pastSessions}
+          projectRoot={projectRoot}
+          onResume={(s) => {
+            pickedSession = s;
+            unmount();
+            resolve();
+          }}
+          onNew={() => {
+            startNew = true;
+            unmount();
+            resolve();
+          }}
+        />,
+        { exitOnCtrlC: true },
+      );
+    });
+
+    if (pickedSession) {
+      const s = pickedSession as StoredSession;
+      resumeSpecificSession(s.id, projectRoot, s.model);
+      resumed = true;
+    } else {
+      createSession(projectRoot, config.model);
+    }
+  } else {
+    // No prior sessions — go straight in
+    createSession(projectRoot, config.model);
+  }
+
+  // ─── Phase 2: Main TUI ───────────────────────────────────────────────────
+  const { waitUntilExit } = render(
+    <App
+      provider={provider}
+      config={config}
+      projectRoot={projectRoot}
+      resumed={resumed}
+      initialShowConnector={initialShowConnector}
+    />,
+    { exitOnCtrlC: false },
+  );
+  await waitUntilExit();
 }
-
-// ─── Render TUI ───────────────────────────────────────────────────────────────
-const { waitUntilExit } = render(
-  <App
-    provider={provider}
-    config={config}
-    projectRoot={projectRoot}
-    resumed={resumed}
-  />,
-  { exitOnCtrlC: false },
-);
-
-await waitUntilExit();

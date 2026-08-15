@@ -19,24 +19,31 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { createMistral } from "@ai-sdk/mistral";
 import type { Provider, ProviderConfig, StreamEvent, ModelMessage } from "./types.ts";
 import type { ToolSet } from "ai";
+import { getEffectiveApiKey } from "../config/user-config.ts";
 
 // ---------------------------------------------------------------------------
-// Build the registry — each provider lazily reads its key from env
+// Build the registry — each provider reads its key via precedence hierarchy:
+// Env Var -> Stored User Config (~/.codemon/config.json)
 // ---------------------------------------------------------------------------
 
-export function buildProviderRegistry() {
+export function buildProviderRegistry(customKeys?: Record<string, string>) {
+  const getApiKey = (provider: string): string => {
+    if (customKeys?.[provider]) return customKeys[provider];
+    return getEffectiveApiKey(provider) ?? "";
+  };
+
   return createProviderRegistry({
     google: createGoogleGenerativeAI({
-      apiKey: process.env.GEMINI_API_KEY ?? process.env.GOOGLE_GENERATIVE_AI_API_KEY ?? "",
+      apiKey: getApiKey("google"),
     }),
     anthropic: createAnthropic({
-      apiKey: process.env.ANTHROPIC_API_KEY ?? "",
+      apiKey: getApiKey("anthropic"),
     }),
     openai: createOpenAI({
-      apiKey: process.env.OPENAI_API_KEY ?? "",
+      apiKey: getApiKey("openai"),
     }),
     mistral: createMistral({
-      apiKey: process.env.MISTRAL_API_KEY ?? "",
+      apiKey: getApiKey("mistral"),
     }),
   });
 }
@@ -71,17 +78,17 @@ export function parseModelString(modelString: string): { provider: string; model
 }
 
 /**
- * Validate that the required API key is present for a given provider.
+ * Validate that an API key is present for a given provider via env var or user config.
  * Returns an error string if missing, or null if OK.
  */
-export function validateApiKey(providerName: string): string | null {
-  const envVars = PROVIDER_ENV_VARS[providerName];
-  if (!envVars) return null; // Unknown provider — let it fail naturally
-  const hasKey = envVars.some((v) => !!process.env[v]);
-  if (!hasKey) {
+export function validateApiKey(providerName: string, customKeys?: Record<string, string>): string | null {
+  if (customKeys?.[providerName]) return null;
+  const key = getEffectiveApiKey(providerName);
+  if (!key) {
+    const envVars = PROVIDER_ENV_VARS[providerName] || [];
     return (
       `❌ No API key found for provider "${providerName}".\n` +
-      `   Set one of: ${envVars.map((v) => `$${v}`).join(", ")}`
+      `   Set one via /connector in TUI or export ${envVars.map((v) => `$${v}`).join(", ")}`
     );
   }
   return null;
@@ -91,8 +98,8 @@ export function validateApiKey(providerName: string): string | null {
 // Create a Provider instance using the registry
 // ---------------------------------------------------------------------------
 
-export function createRegistryProvider(config: ProviderConfig): Provider {
-  const registry = buildProviderRegistry();
+export function createRegistryProvider(config: ProviderConfig, customKeys?: Record<string, string>): Provider {
+  const registry = buildProviderRegistry(customKeys);
   const { provider: providerName, model: modelId } = parseModelString(config.model);
 
   // Canonical model string for the registry (always colon-separated)

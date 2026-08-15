@@ -11,7 +11,8 @@ Built with **Bun**, **TypeScript**, **Ink (React TUI)**, and **Vercel AI SDK v7*
 ## Features
 
 - **Streaming TUI**: Dynamic terminal interface with real-time text streaming, active tool progress, diff previews, and permission prompts.
-- **BYOK Architecture**: Connect to Google Gemini, Anthropic Claude, OpenAI GPT, or Mistral using model strings like `google:gemini-2.0-flash-exp` or `openai:gpt-4o`.
+- **BYOK Architecture & /connector**: Connect to Google Gemini, Anthropic Claude, OpenAI GPT, or Mistral. Use `/connector` in the TUI to interactively paste keys, select models, or switch providers mid-session. Credentials are stored securely in `~/.codemon/config.json` with `0600` POSIX mode permissions.
+- **Precedence Hierarchy**: `CLI flag (--model)` > `Env Var (GEMINI_API_KEY)` > `User Config (~/.codemon/config.json)` > `Default`.
 - **Poké Ball Permission Gate**: Three security modes: `safe` (ask for write/bash), `standard` (ask for write/bash, allow read), and `yolo` (auto-approve all). Supports "Always allow" per session.
 - **8 Moves**: `read_file`, `write_file`, `edit_file` (with fuzzy diff matching), `list_dir`, `bash`, `grep`, `glob`, `spawn_party_member`.
 - **Pokédex (SQLite Persistence)**: Sessions and messages automatically saved to `.codemon/pokedex.db`. Supports `--continue` to resume previous sessions and `--rewind` to roll back file changes.

@@ -92,9 +92,12 @@ The Battle Engine controls the primary agent loop:
 - **Isolated Context**: `spawn_subagent` delegates sub-tasks to fresh sub-agent instances with clean context windows.
 - **Recursion Hard Cap**: To prevent unbounded recursion and token burn, `spawn_subagent` is excluded from the toolset passed to sub-agents, enforcing a strict maximum recursion depth of 1 (sub-agents cannot spawn nested sub-agents).
 
-### 8. Context Budget & Truncation (`src/core/context-manager.ts`)
-- `ContextManager` estimates cumulative token counts across system prompts and message history.
-- When estimated token usage exceeds **80% of `maxContextTokens`**, a sliding window truncates history to preserve the 20 most recent messages, maintaining active conversation continuity without exceeding model context limits.
+### 9. User Configuration & Credential Security (`src/config/user-config.ts`)
+- **Interactive Connector**: Manages API key entry and model configuration via the `/connector` TUI slash command.
+- **Strict POSIX 0600 Permissions**: Saves credentials to `~/.codemon/config.json` with strict mode `0600` permissions (`-rw-------`), protecting file reads from other system accounts.
+- **Masked Key Display**: Formats stored keys as `••••••••1a4f` showing only the last 4 characters in terminal displays.
+- **4-Tier Precedence Hierarchy**: Resolves configuration in strict order:
+  `CLI Flag (--model)` > `Environment Variable ($GEMINI_API_KEY)` > `User Config (~/.codemon/config.json)` > `Built-in Default`.
 
 ---
 
@@ -103,4 +106,5 @@ The Battle Engine controls the primary agent loop:
 1. **Explicit Permission Gates**: Write and shell operations are restricted by default in `standard` and `safe` modes.
 2. **Jailed File Access**: Path resolution for structured file moves is enforced through `jailPath()` to prevent traversal outside the project root (`../..`).
 3. **Containerized Execution Option**: For OS-level container sandboxing, `--sandbox docker` runs shell commands inside network-isolated Docker containers (`--network none`, restricted memory/CPU).
+4. **Credential Security**: Credentials saved via `/connector` are stored with POSIX `0600` owner-only permissions (`-rw-------`) and masked in TUI outputs.
 

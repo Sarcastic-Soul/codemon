@@ -9,7 +9,7 @@ Welcome to the Codemon documentation. Below you will find comprehensive guides o
 1. **[CLI Commands & Usage Reference](cli-commands.md)**
    - Installation & Setup
    - Command Line Flags (`--model`, `--mode`, `--sandbox`, `--continue`, `--rewind`, etc.)
-   - Environment Variables & BYOK Provider Keys
+   - Environment Variables, `/connector` TUI command, & 4-Tier Precedence Order
    - Interactive TUI Keyboard Controls & Moves Reference
    - Common CLI Usage Workflows
 
@@ -21,6 +21,7 @@ Welcome to the Codemon documentation. Below you will find comprehensive guides o
    - **Safari Zone**: Path Jail & Docker Container Sandboxing
    - **Pokédex**: SQLite session persistence & checkpoint state management
    - **Party Members**: Sub-agent delegation & context isolation
+   - **User Config & Credentials**: Interactive `/connector`, `0600` POSIX mode permissions (`~/.codemon/config.json`), key masking
    - **Provider Abstraction**: Vercel AI SDK integration
 
 3. **[Distribution & Release Guide](distribution.md)**

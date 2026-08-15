@@ -2,6 +2,7 @@ import type { ModelMessage } from "../providers/types.ts";
 import {
   dbCreateSession,
   dbTouchSession,
+  dbUpdateSessionModel,
   dbInsertMessage,
   dbLoadMessages,
   dbGetLastSessionForRegion,
@@ -63,6 +64,25 @@ export function resumeLastSession(region: string): Session | null {
   }
 }
 
+/**
+ * Resume any specific past session by its ID.
+ * Used by the interactive SessionPicker.
+ */
+export function resumeSpecificSession(sessionId: string, region: string, model: string): Session {
+  const messages = dbLoadMessages(sessionId);
+  const session: Session = {
+    id: sessionId,
+    startedAt: new Date().toISOString(),
+    messages,
+    totalTokensUsed: 0,
+    region,
+    model,
+  };
+  currentSession = session;
+  return session;
+}
+
+
 export function getSession(): Session {
   if (!currentSession) throw new Error("No active session. Call createSession first.");
   return currentSession;
@@ -85,6 +105,14 @@ export function updateTokenUsage(tokens: number): void {
   session.totalTokensUsed += tokens;
   try {
     dbTouchSession(session.id, session.totalTokensUsed);
+  } catch {}
+}
+
+export function updateSessionModel(model: string): void {
+  try {
+    const session = getSession();
+    session.model = model;
+    dbUpdateSessionModel(session.id, model);
   } catch {}
 }
 

@@ -29,6 +29,12 @@ export function dbTouchSession(id: string, totalTokens: number): void {
     .run(new Date().toISOString(), totalTokens, id);
 }
 
+export function dbUpdateSessionModel(id: string, model: string): void {
+  getDb()
+    .query(`UPDATE sessions SET model = ?, last_active = ? WHERE id = ?`)
+    .run(model, new Date().toISOString(), id);
+}
+
 export function dbGetLastSessionForRegion(region: string): { id: string; model: string } | null {
   const row = getDb()
     .query(`SELECT id, model FROM sessions WHERE region = ? ORDER BY last_active DESC LIMIT 1`)
