@@ -9,20 +9,21 @@ Welcome to the Codemon documentation. Below you will find comprehensive guides o
 1. **[CLI Commands & Usage Reference](cli-commands.md)**
    - Installation & Setup
    - Command Line Flags (`--model`, `--mode`, `--sandbox`, `--continue`, `--rewind`, etc.)
-   - Environment Variables, `/connector` TUI command, & 4-Tier Precedence Order
+   - Environment Variables, `/connector` TUI command, & the configuration precedence chain
    - Interactive TUI Keyboard Controls & Moves Reference
    - Common CLI Usage Workflows
 
 2. **[Architecture & Design Guide](architecture.md)**
    - System Overview & Component Diagram
-   - **Battle Engine**: Core streaming execution loop
+   - **Agent Loop**: Core streaming execution loop (`src/core/agent-loop.ts`)
    - **Poké Ball Permission Gate**: Security levels (`safe`, `standard`, `yolo`)
    - **Moves Registry**: Tool system architecture & extensibility
    - **Safari Zone**: Path Jail & Docker Container Sandboxing
    - **Pokédex**: SQLite session persistence & checkpoint state management
    - **Party Members**: Sub-agent delegation & context isolation
+   - **Provider Registry**: Vercel AI SDK integration behind one `Provider` interface
    - **User Config & Credentials**: Interactive `/connector`, `0600` POSIX mode permissions (`~/.codemon/config.json`), key masking
-   - **Provider Abstraction**: Vercel AI SDK integration
+   - **Evals & Tests**: `--eval` benchmarks and the `bun test` suite
 
 3. **[Distribution & Release Guide](distribution.md)**
    - How `bun build --compile` produces the standalone binary

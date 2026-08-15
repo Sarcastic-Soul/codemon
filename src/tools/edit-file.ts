@@ -3,7 +3,7 @@ import { z } from "zod";
 import { jailPath } from "../sandbox/path-jail.ts";
 import { applyEdit } from "../utils/diff-apply.ts";
 import { dbSaveCheckpoint } from "../storage/checkpoints.repo.ts";
-import { getSession } from "../core/session.ts";
+import { getSession, ensureSessionPersisted } from "../core/session.ts";
 import type { ToolDefinition } from "./types.ts";
 
 const schema = z.object({
@@ -34,6 +34,10 @@ export const editFileTool: ToolDefinition<typeof schema> = {
     // Checkpoint before any edit (idempotent — only saves the first per file per session)
     try {
       const session = getSession();
+      // Checkpoints carry a foreign key to the session, and the row is written
+      // lazily — a message always comes first in practice, but the ordering
+      // shouldn't be what holds this up.
+      ensureSessionPersisted();
       dbSaveCheckpoint(session.id, absPath, originalContent, "edit_file");
     } catch {}
 
@@ -41,6 +45,14 @@ export const editFileTool: ToolDefinition<typeof schema> = {
     if (!result.success) return { error: result.error };
 
     fs.writeFileSync(absPath, result.newContent, "utf8");
-    return { success: true, path: filePath, diff: result.unified };
+    // `strategy` travels with the result so the caller can see that an edit was
+    // placed by similarity rather than by an exact match.
+    return {
+      success: true,
+      path: filePath,
+      diff: result.unified,
+      strategy: result.strategy,
+      ...(result.similarity === undefined ? {} : { similarity: result.similarity }),
+    };
   },
 };

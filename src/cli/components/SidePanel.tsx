@@ -1,12 +1,18 @@
 import React from "react";
 import { Box, Text } from "ink";
 import { formatTokenCount } from "../../utils/tokenizer.ts";
+import { ALL_COMMANDS } from "../commands/index.ts";
 
 interface SidePanelProps {
   model: string;
   region: string;
   permissionMode: string;
-  tokenCount: number;
+  /** What the history currently occupies — the number truncation acts on. */
+  contextTokens: number;
+  /** The budget that same truncation measures against. */
+  maxContextTokens: number;
+  /** Cumulative prompt + completion tokens billed this session. */
+  spentTokens: number;
   isThinking: boolean;
   resumed: boolean;
   sessionId?: string;
@@ -29,13 +35,49 @@ const MODE_COLORS: Record<string, string> = {
   yolo: "red",
 };
 
-const COMMANDS: { name: string; desc: string }[] = [
-  { name: "/connector", desc: "set key" },
-  { name: "/model",     desc: "model" },
-  { name: "/clear",     desc: "clear chat" },
-  { name: "/help",      desc: "help" },
-  { name: "/exit",      desc: "quit" },
-];
+/**
+ * Read from the registry the dispatcher uses, so the cheatsheet cannot list a
+ * command that no longer exists or miss one that does.
+ */
+const COMMANDS = ALL_COMMANDS.map((cmd) => ({
+  name: cmd.names[0] ?? "/unknown",
+  desc: cmd.hint,
+}));
+
+/** Matches the context manager: it trims at 80% and trims down to 60%. */
+const WARN_PERCENT = 60;
+const TRIM_PERCENT = 80;
+
+const BAR_WIDTH = 16;
+
+export interface ContextMeter {
+  percentUsed: number;
+  bar: string;
+  color: string;
+}
+
+/**
+ * The meter is context occupancy — how full the window the agent loop trims is.
+ *
+ * It used to be filled from cumulative completion tokens against a hardcoded
+ * 100k, which is a different quantity entirely: the bar crept toward full
+ * during a long session that was nowhere near its context limit, and never
+ * moved when the history was actually trimmed.
+ */
+export function contextMeter(
+  contextTokens: number,
+  maxContextTokens: number,
+  width: number = BAR_WIDTH,
+): ContextMeter {
+  const budget = maxContextTokens > 0 ? maxContextTokens : 1;
+  const percentUsed = Math.max(0, Math.min(100, Math.round((contextTokens / budget) * 100)));
+  const filled = Math.min(width, Math.round((percentUsed / 100) * width));
+  return {
+    percentUsed,
+    bar: "█".repeat(filled) + "░".repeat(width - filled),
+    color: percentUsed >= TRIM_PERCENT ? "red" : percentUsed >= WARN_PERCENT ? "yellow" : "green",
+  };
+}
 
 function shortPath(p: string, max = 26): string {
   return p.length > max ? "…" + p.slice(p.length - max + 1) : p;
@@ -54,7 +96,9 @@ export function SidePanel({
   model,
   region,
   permissionMode,
-  tokenCount,
+  contextTokens,
+  maxContextTokens,
+  spentTokens,
   isThinking,
   resumed,
   sessionId,
@@ -67,11 +111,10 @@ export function SidePanel({
   const modeIcon = MODE_ICONS[permissionMode] ?? "⚾ ";
   const modeColor = MODE_COLORS[permissionMode] ?? "white";
 
-  const MAX_TOKENS = 100_000;
-  const barWidth = 16;
-  const filled = Math.min(barWidth, Math.round((tokenCount / MAX_TOKENS) * barWidth));
-  const barColor = tokenCount > 80_000 ? "red" : tokenCount > 50_000 ? "yellow" : "green";
-  const tokenBar = "█".repeat(filled) + "░".repeat(barWidth - filled);
+  const { percentUsed, bar: tokenBar, color: barColor } = contextMeter(
+    contextTokens,
+    maxContextTokens,
+  );
 
   const divider = "─".repeat(24);
 
@@ -113,10 +156,20 @@ export function SidePanel({
         </Box>
       </Row>
 
-      {/* Tokens */}
-      <Row label="📊 tokens">
-        <Text color="gray">~{formatTokenCount(tokenCount)} tk</Text>
-        <Text color={barColor}>{tokenBar}</Text>
+      {/* Context occupancy — what the context manager trims on */}
+      <Row label="🧠 context">
+        <Text color="gray">
+          ~{formatTokenCount(contextTokens)} / {formatTokenCount(maxContextTokens)}
+        </Text>
+        <Box gap={1}>
+          <Text color={barColor}>{tokenBar}</Text>
+          <Text dimColor>{percentUsed}%</Text>
+        </Box>
+      </Row>
+
+      {/* Cumulative spend — a different quantity, so a different line */}
+      <Row label="📊 spent">
+        <Text color="gray">~{formatTokenCount(spentTokens)} tk</Text>
       </Row>
 
       {/* Status */}

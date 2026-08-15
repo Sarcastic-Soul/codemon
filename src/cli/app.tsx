@@ -1,14 +1,15 @@
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useMemo } from "react";
 import { Box, Text, useInput, useApp } from "ink";
 import TextInput from "ink-text-input";
 import { ChatView } from "./components/ChatView.tsx";
 import { ToolCallView, type ToolCallEntry } from "./components/ToolCallView.tsx";
-import { DiffView } from "./components/DiffView.tsx";
+import { DiffView, type DiffEntry } from "./components/DiffView.tsx";
 import { PermissionPrompt } from "./components/PermissionPrompt.tsx";
 import { SidePanel } from "./components/SidePanel.tsx";
 import { ConnectorModal, type ConnectorResult } from "./components/ConnectorModal.tsx";
 import { runAgent } from "../core/agent-loop.ts";
 import { getSession, getMessages, updateSessionModel } from "../core/session.ts";
+import { ContextManager } from "../core/context-manager.ts";
 import { loadAgentRules } from "../config/load-agent-rules.ts";
 import { buildRepoIndex, formatRepoIndex } from "../core/repo-indexer.ts";
 import { createRegistryProvider, validateApiKey } from "../providers/registry.ts";
@@ -19,6 +20,56 @@ import type { CodemonConfig } from "../config/defaults.ts";
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
+  /** Tool calls made while producing this message, kept with it rather than
+   *  floating beneath the transcript until the next submit wipes them. */
+  toolCalls?: ToolCallEntry[];
+  /** File edits from the same turn. */
+  diffs?: DiffEntry[];
+}
+
+/**
+ * Reads a tool result for a diff to display.
+ *
+ * `edit_file` and `write_file` both come back with `{ path, diff }`; `edit_file`
+ * adds `strategy` so a block placed by similarity rather than an exact match
+ * can be flagged as such.
+ */
+export function diffFromResult(result: unknown): DiffEntry | null {
+  if (typeof result !== "object" || result === null) return null;
+  const r = result as Record<string, unknown>;
+  if (typeof r.diff !== "string" || r.diff === "" || r.path === undefined) return null;
+
+  return {
+    unified: r.diff,
+    path: String(r.path),
+    ...(r.strategy === "fuzzy"
+      ? { fuzzy: { similarity: Number(r.similarity ?? 0) } }
+      : {}),
+  };
+}
+
+/**
+ * Folds a finished turn into the message that goes in the transcript.
+ *
+ * Tool calls and diffs used to live in floating state beneath the chat, reset
+ * at the top of every submit — so the record of what the agent just did
+ * disappeared the moment you replied to it. Attaching them to the message keeps
+ * them for as long as the message is on screen. A turn that ran tools without
+ * saying anything still gets a message, or its record would go with the reset.
+ */
+export function messageForTurn(
+  text: string,
+  toolCalls: ToolCallEntry[],
+  diffs: DiffEntry[],
+): ChatMessage | null {
+  if (!text && toolCalls.length === 0 && diffs.length === 0) return null;
+
+  return {
+    role: "assistant",
+    content: text,
+    ...(toolCalls.length > 0 ? { toolCalls } : {}),
+    ...(diffs.length > 0 ? { diffs } : {}),
+  };
 }
 
 interface PendingPermission {
@@ -75,10 +126,12 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
   const [streamingText, setStreamingText] = useState("");
   const [input, setInput] = useState("");
   const [isThinking, setIsThinking] = useState(false);
-  const [toolCalls, setToolCalls] = useState<ToolCallEntry[]>([]);
-  const [lastDiff, setLastDiff] = useState<{ unified: string; path: string } | null>(null);
+  // Live state for the turn in flight only. Once the turn ends both are folded
+  // into the assistant message they belong to, so the record survives the reply.
+  const [liveToolCalls, setLiveToolCalls] = useState<ToolCallEntry[]>([]);
+  const [liveDiffs, setLiveDiffs] = useState<DiffEntry[]>([]);
   const [pendingPermission, setPendingPermission] = useState<PendingPermission | null>(null);
-  const [tokenCount, setTokenCount] = useState(() => {
+  const [spentTokens, setSpentTokens] = useState(() => {
     try { return getSession().totalTokensUsed; } catch { return 0; }
   });
   const [sessionId] = useState(() => {
@@ -89,17 +142,29 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
     buildBaseSystemPrompt(config, projectRoot)
   );
 
+  // Context occupancy, as the agent loop measures it. Seeded here so a resumed
+  // session shows its real load before the first turn reports one.
+  const [contextTokens, setContextTokens] = useState(() => {
+    try {
+      const manager = new ContextManager(config.maxContextTokens);
+      return manager.getStats(getMessages(), buildBaseSystemPrompt(config, projectRoot))
+        .estimatedTokens;
+    } catch {
+      return 0;
+    }
+  });
+
   // Build command context for the slash-command dispatcher
   const addMessage = useCallback((msg: ChatMessage) => {
     setMessages((prev) => [...prev, msg]);
   }, []);
 
-  const commandContext = {
-    exit,
-    addMessage,
-    setMessages,
-    setShowConnectorModal,
-  };
+  // Memoized because `handleSubmit` depends on it: rebuilt every render, it
+  // gave the callback a new identity on every keystroke and memoized nothing.
+  const commandContext = useMemo(
+    () => ({ exit, addMessage, setMessages, setShowConnectorModal }),
+    [exit, addMessage],
+  );
 
   // Handle provider/model selection from ConnectorModal
   const handleConnectorSelect = useCallback((result: ConnectorResult) => {
@@ -166,13 +231,22 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
       setInput("");
       setIsThinking(true);
       setStreamingText("");
-      setToolCalls([]);
-      setLastDiff(null);
+      setLiveToolCalls([]);
+      setLiveDiffs([]);
 
       const userMsg: ChatMessage = { role: "user", content: userText };
       setMessages((prev) => [...prev, userMsg]);
 
       let assistantBuffer = "";
+      // Held locally as well as in state: the state value read inside this loop
+      // would be the one captured when the turn started.
+      let turnToolCalls: ToolCallEntry[] = [];
+      let turnDiffs: DiffEntry[] = [];
+      const putToolCalls = (next: ToolCallEntry[]) => {
+        turnToolCalls = next;
+        setLiveToolCalls(next);
+      };
+
       const engine = runAgent(userText, activeProvider, { ...config, model: activeModel }, systemPrompt);
 
       for await (const event of engine) {
@@ -183,8 +257,8 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
             break;
 
           case "tool-start":
-            setToolCalls((prev) => [
-              ...prev,
+            putToolCalls([
+              ...turnToolCalls,
               {
                 id: event.toolCallId,
                 toolName: event.toolName,
@@ -195,12 +269,13 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
             break;
 
           case "tool-result": {
-            const result = event.result as Record<string, unknown>;
-            if (result?.diff && typeof result.diff === "string" && result.path) {
-              setLastDiff({ unified: result.diff, path: String(result.path) });
+            const diff = diffFromResult(event.result);
+            if (diff) {
+              turnDiffs = [...turnDiffs, diff];
+              setLiveDiffs(turnDiffs);
             }
-            setToolCalls((prev) =>
-              prev.map((tc) =>
+            putToolCalls(
+              turnToolCalls.map((tc) =>
                 tc.id === event.toolCallId
                   ? { ...tc, status: "success", result: event.result }
                   : tc,
@@ -210,13 +285,17 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
           }
 
           case "tool-error":
-            setToolCalls((prev) =>
-              prev.map((tc) =>
+            putToolCalls(
+              turnToolCalls.map((tc) =>
                 tc.id === event.toolCallId
                   ? { ...tc, status: "error", error: event.error }
                   : tc,
               ),
             );
+            break;
+
+          case "context":
+            setContextTokens(event.estimatedTokens);
             break;
 
           case "permission-required":
@@ -237,7 +316,9 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
 
           case "finish":
             if (event.usage) {
-              setTokenCount((t) => t + event.usage!.completionTokens);
+              // Both halves, to match what the session row stores. Prompt
+              // tokens are most of the spend on an agentic loop.
+              setSpentTokens((t) => t + event.usage!.promptTokens + event.usage!.completionTokens);
             }
             break;
 
@@ -247,13 +328,11 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
         }
       }
 
-      if (assistantBuffer) {
-        setMessages((prev) => [
-          ...prev,
-          { role: "assistant", content: assistantBuffer },
-        ]);
-      }
+      const turnMessage = messageForTurn(assistantBuffer, turnToolCalls, turnDiffs);
+      if (turnMessage) setMessages((prev) => [...prev, turnMessage]);
       setStreamingText("");
+      setLiveToolCalls([]);
+      setLiveDiffs([]);
       setIsThinking(false);
     },
     [isThinking, activeProvider, activeModel, config, systemPrompt, commandContext, addMessage],
@@ -271,11 +350,18 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
         <Box flexDirection="column" flexGrow={1} overflow="hidden">
           <ChatView messages={messages} streamingText={streamingText} />
 
-          {/* Active tool calls */}
-          {toolCalls.length > 0 && <ToolCallView calls={toolCalls} />}
+          {/* The turn in flight. Finished turns render inside the transcript,
+              attached to their own message. */}
+          {liveToolCalls.length > 0 && <ToolCallView calls={liveToolCalls} />}
 
-          {/* Diff preview */}
-          {lastDiff && <DiffView unified={lastDiff.unified} filePath={lastDiff.path} />}
+          {liveDiffs.map((diff, i) => (
+            <DiffView
+              key={i}
+              unified={diff.unified}
+              filePath={diff.path}
+              fuzzy={diff.fuzzy}
+            />
+          ))}
 
           {/* Permission prompt */}
           {pendingPermission && (
@@ -290,7 +376,6 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
           {/* Connector Modal */}
           {showConnectorModal && (
             <ConnectorModal
-              currentModel={activeModel}
               onClose={() => setShowConnectorModal(false)}
               onSelectProviderModel={handleConnectorSelect}
             />
@@ -319,7 +404,9 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
           model={activeModel}
           region={projectRoot}
           permissionMode={config.permissionMode}
-          tokenCount={tokenCount}
+          contextTokens={contextTokens}
+          maxContextTokens={config.maxContextTokens}
+          spentTokens={spentTokens}
           isThinking={isThinking}
           resumed={resumed}
           sessionId={sessionId}

@@ -51,6 +51,7 @@ export const bashTool: ToolDefinition<typeof schema> = {
           stderr: result.stderr.slice(0, 5000),
           exit_code: result.exitCode,
           timed_out: result.timedOut,
+          output_truncated: result.truncated || result.stdout.length > 20000,
           sandbox: "docker",
         };
       }
@@ -65,6 +66,7 @@ export const bashTool: ToolDefinition<typeof schema> = {
       stderr: result.stderr.slice(0, 5000),
       exit_code: result.exitCode,
       timed_out: result.timedOut,
+      output_truncated: result.truncated || result.stdout.length > 20000,
       sandbox: "subprocess",
     };
   },

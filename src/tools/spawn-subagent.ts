@@ -4,7 +4,11 @@ import { getCurrentProvider, getCurrentConfig } from "../core/provider-instance.
 import { getProjectRoot } from "../sandbox/path-jail.ts";
 import type { ToolDefinition } from "./types.ts";
 
-const AVAILABLE_TOOLS = ["read_file", "list_dir", "grep", "glob", "bash", "edit_file", "write_file"] as const;
+/**
+ * What a sub-agent may use. `spawn_subagent` is deliberately absent — that
+ * omission is what caps nesting at depth 1.
+ */
+export const AVAILABLE_TOOLS = ["read_file", "list_dir", "grep", "glob", "bash", "edit_file", "write_file"] as const;
 
 const schema = z.object({
   task: z
@@ -42,7 +46,7 @@ Use this when:
 - You want to parallelize work (run a search while continuing the main task)
 - You need a clean, summarized result from a complex operation
 
-The sub-agent has access to all standard tools (read_file, grep, bash, etc.) and runs in auto-approve mode. It returns a concise summary of what it found/did.`,
+The sub-agent runs under the same permission mode as this session and cannot spawn sub-agents of its own. It has no way to show a confirmation prompt, so any tool that would need one is denied and reported back in \`errors\` — in safe mode that means it is effectively read-only. Pass \`allowed_tools\` to narrow it further. It returns a concise summary of what it found/did.`,
   parameters: schema,
   permissionLevel: "bash", // Treat as bash-level since it can run anything
   async execute({ task, context, allowed_tools, max_tokens = 4096 }) {
@@ -50,10 +54,13 @@ The sub-agent has access to all standard tools (read_file, grep, bash, etc.) and
     const parentConfig = getCurrentConfig();
     const projectRoot = getProjectRoot();
 
-    // Sub-agent config: yolo mode (already approved by parent), reduced max_tokens
+    // The sub-agent inherits the parent's permission mode rather than being
+    // pinned to yolo. Approving one delegation used to buy unrestricted write
+    // and bash for the whole sub-task, even from safe mode — a quieter grant
+    // than the prompt implied. Anything that would need confirmation is denied
+    // by runToCompletion, since a sub-agent has no UI to ask through.
     const subConfig = {
       ...parentConfig,
-      permissionMode: "yolo" as const,
       maxTokens: max_tokens,
       maxContextTokens: 50000,
     };
@@ -62,13 +69,19 @@ The sub-agent has access to all standard tools (read_file, grep, bash, etc.) and
       `You are a sub-agent — a focused agent instance delegated a specific task by the main Codemon agent.`,
       `Complete the task efficiently and return a concise, structured summary of your findings or actions.`,
       `Do not ask for clarification — make your best effort with the information given.`,
+      `You are running in "${parentConfig.permissionMode}" permission mode with no interactive prompt available.`,
+      `Any tool call that would require user confirmation is denied automatically — report it rather than retrying.`,
       `Project root: ${projectRoot}`,
       context ? `\n## Additional Context\n${context}` : "",
     ]
       .filter(Boolean)
       .join("\n");
 
-    const toolFilter = allowed_tools ? new Set<string>(allowed_tools) : undefined;
+    // Always pass a filter. `AVAILABLE_TOOLS` leaves out `spawn_subagent`, which
+    // is what caps nesting at depth 1 — but only now that the agent loop
+    // enforces the filter at execution instead of merely omitting it from the
+    // toolset it offers the model.
+    const toolFilter = new Set<string>(allowed_tools ?? AVAILABLE_TOOLS);
     const store = createInMemoryStore();
 
     const start = Date.now();

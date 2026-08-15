@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { shellExec } from "../sandbox/shell-executor.ts";
+import * as path from "path";
+import { jailPath, getProjectRoot, isInsideJail } from "../sandbox/path-jail.ts";
 import type { ToolDefinition } from "./types.ts";
 
 const schema = z.object({
@@ -18,6 +19,11 @@ const schema = z.object({
     .describe("Glob pattern for paths to exclude (e.g. 'node_modules/**')"),
 });
 
+const MAX_RESULTS = 200;
+
+/** Never worth returning, and expensive to walk. */
+const ALWAYS_EXCLUDE = ["**/node_modules/**", "**/.git/**"];
+
 export const globTool: ToolDefinition<typeof schema> = {
   name: "glob",
   description:
@@ -25,22 +31,46 @@ export const globTool: ToolDefinition<typeof schema> = {
   parameters: schema,
   permissionLevel: "read",
   async execute({ pattern, path: basePath, exclude }) {
-    const base = basePath ?? ".";
-    const excludeFlag = exclude ? `--exclude='${exclude}'` : "";
-    // Use find with shell glob expansion
-    const command = `find '${base}' -type f -name '${pattern}' ${excludeFlag} | grep -v node_modules | grep -v '.git' | head -200`;
-    const result = await shellExec(command);
+    // Matching happens in-process via Bun.Glob — no subprocess and no shell, so
+    // `pattern`, `path` and `exclude` are never parsed as command syntax.
+    const base = jailPath(basePath ?? ".");
+    const root = getProjectRoot();
 
-    if (result.exitCode !== 0 || result.stdout.trim() === "") {
-      // Fallback: use bash glob
-      const fallback = await shellExec(
-        `bash -c "shopt -s globstar; ls ${base}/${pattern} 2>/dev/null | head -200"`,
+    const excludeGlobs = [...ALWAYS_EXCLUDE, ...(exclude ? [exclude] : [])].map(
+      (p) => new Bun.Glob(p),
+    );
+
+    const files: string[] = [];
+    let truncated = false;
+
+    try {
+      for await (const relative of new Bun.Glob(pattern).scan({
+        cwd: base,
+        onlyFiles: true,
+        followSymlinks: false,
+        dot: true,
+      })) {
+        if (excludeGlobs.some((g) => g.match(relative))) continue;
+
+        // A `..` segment in the pattern could still walk out of the base —
+        // drop anything that lands outside the jail.
+        const absolute = path.resolve(base, relative);
+        if (!isInsideJail(absolute)) continue;
+
+        files.push(path.relative(root, absolute));
+        if (files.length >= MAX_RESULTS) {
+          truncated = true;
+          break;
+        }
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new Error(
+        `Cannot search "${path.relative(root, base) || "."}": ${message}`,
       );
-      const files = fallback.stdout.trim().split("\n").filter(Boolean);
-      return { files, count: files.length };
     }
 
-    const files = result.stdout.trim().split("\n").filter(Boolean);
-    return { files, count: files.length };
+    files.sort();
+    return { files, count: files.length, truncated };
   },
 };

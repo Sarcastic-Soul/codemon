@@ -30,8 +30,16 @@
     "bun",
     "typescript"
   ],
-  "author": "",
+  "author": "Sarcastic-Soul <anishisbusy@gmail.com> (https://github.com/Sarcastic-Soul)",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Sarcastic-Soul/codemon.git"
+  },
+  "homepage": "https://github.com/Sarcastic-Soul/codemon#readme",
+  "bugs": {
+    "url": "https://github.com/Sarcastic-Soul/codemon/issues"
+  },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.36",
     "@ai-sdk/google": "^4.0.39",

@@ -1,7 +1,14 @@
 import type { PermissionLevel } from "../tools/types.ts";
 import type { CodemonConfig } from "../config/defaults.ts";
+import { logger } from "../utils/logger.ts";
 
-export type PermissionMode = "safe" | "standard" | "yolo";
+export const PERMISSION_MODES = ["safe", "standard", "yolo"] as const;
+
+export type PermissionMode = (typeof PERMISSION_MODES)[number];
+
+export function isPermissionMode(value: unknown): value is PermissionMode {
+  return typeof value === "string" && (PERMISSION_MODES as readonly string[]).includes(value);
+}
 
 export interface RuleSet {
   autoAllow: Set<PermissionLevel>;
@@ -12,6 +19,11 @@ export interface RuleSet {
 /**
  * Defines which permission levels are auto-allowed, auto-denied, or need confirmation
  * for each permission mode.
+ *
+ * The `default` branch is unreachable through the type system, but modes also
+ * arrive from config files and CLI flags that TypeScript never sees. It fails
+ * closed — nothing is auto-allowed — rather than returning `undefined` and
+ * taking the gate down with it.
  */
 export function getRuleSet(mode: PermissionMode): RuleSet {
   switch (mode) {
@@ -34,6 +46,14 @@ export function getRuleSet(mode: PermissionMode): RuleSet {
         autoAllow: new Set(["read", "write", "bash"]),
         autoDeny: new Set(),
         requireConfirm: new Set(),
+      };
+
+    default:
+      logger.warn("unknown permission mode — confirming everything", { mode: String(mode) });
+      return {
+        autoAllow: new Set(),
+        autoDeny: new Set(),
+        requireConfirm: new Set(["read", "write", "bash"]),
       };
   }
 }

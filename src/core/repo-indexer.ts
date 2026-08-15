@@ -1,6 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
-import { shellExec } from "../sandbox/shell-executor.ts";
+import { shellExecArgv } from "../sandbox/shell-executor.ts";
 
 const SKIP_DIRS = new Set(["node_modules", ".git", "dist", ".next", "build", "__pycache__", ".cache", "coverage"]);
 const MAX_TREE_FILES = 150;
@@ -50,35 +50,84 @@ function buildFileTree(dir: string, depth = 0, maxDepth = 4, count = { n: 0 }): 
   return result;
 }
 
+/** Most files the mtime fallback will stat before giving up on being exhaustive. */
+const MAX_WALK_FILES = 20_000;
+
 /**
- * Get recently modified files via git (falls back to find if no git repo).
+ * Get recently modified files via git (falls back to mtime if no git repo).
+ *
+ * Both the git call and the walk stay out of the shell: `projectRoot` comes
+ * from `--region` or the cwd, and a path holding an apostrophe used to end the
+ * quoted string it was spliced into and break the command.
  */
 async function getRecentlyModified(projectRoot: string, n = 10): Promise<string[]> {
-  // Try git
-  const gitResult = await shellExec(
-    `git -C '${projectRoot}' log --name-only --pretty=format: -${n * 2} 2>/dev/null | grep -v '^$' | head -${n}`,
+  // Try git. The `| grep -v '^$' | head` filtering the command string used to
+  // do is a couple of array operations here.
+  const gitResult = await shellExecArgv(
+    ["git", "-C", projectRoot, "log", "--name-only", "--pretty=format:", `-${n * 2}`],
     5000,
   );
   if (gitResult.exitCode === 0 && gitResult.stdout.trim()) {
-    return [...new Set(gitResult.stdout.trim().split("\n").filter(Boolean))].slice(0, n);
+    const files = gitResult.stdout.split("\n").filter((line) => line.trim() !== "");
+    if (files.length > 0) return [...new Set(files)].slice(0, n);
   }
 
-  // Fallback: find most recently modified files
-  const findResult = await shellExec(
-    `find '${projectRoot}' -type f -not -path '*/node_modules/*' -not -path '*/.git/*' -not -path '*/dist/*' -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -${n} | awk '{print $2}'`,
-    5000,
-  );
-  if (findResult.exitCode === 0) {
-    return findResult.stdout.trim().split("\n").filter(Boolean).map((p) => path.relative(projectRoot, p));
-  }
-  return [];
+  return mostRecentlyModified(projectRoot, n);
+}
+
+/**
+ * Newest files by mtime, for a directory that is not a git repository.
+ *
+ * Walks by hand rather than globbing so that `node_modules` and friends are
+ * pruned instead of enumerated and then discarded — on a project with installed
+ * dependencies that is the difference between reading a few hundred entries and
+ * a few hundred thousand.
+ */
+function mostRecentlyModified(projectRoot: string, n: number): string[] {
+  const found: Array<{ file: string; mtimeMs: number }> = [];
+
+  const walk = (dir: string) => {
+    if (found.length >= MAX_WALK_FILES) return;
+
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return; // unreadable directory — nothing to report about it
+    }
+
+    for (const entry of entries) {
+      if (found.length >= MAX_WALK_FILES) return;
+      if (entry.name.startsWith(".")) continue;
+
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (!SKIP_DIRS.has(entry.name)) walk(full);
+        continue;
+      }
+      if (!entry.isFile()) continue; // symlinks, sockets, devices
+
+      try {
+        found.push({ file: path.relative(projectRoot, full), mtimeMs: fs.statSync(full).mtimeMs });
+      } catch {
+        continue; // vanished between the walk and the stat
+      }
+    }
+  };
+
+  walk(projectRoot);
+
+  return found
+    .sort((a, b) => b.mtimeMs - a.mtimeMs)
+    .slice(0, n)
+    .map((entry) => entry.file);
 }
 
 /**
  * Get git status summary.
  */
 async function getGitStatus(projectRoot: string): Promise<string> {
-  const result = await shellExec(`git -C '${projectRoot}' status --short 2>/dev/null`, 5000);
+  const result = await shellExecArgv(["git", "-C", projectRoot, "status", "--short"], 5000);
   if (result.exitCode === 0 && result.stdout.trim()) {
     return result.stdout.trim().split("\n").slice(0, 15).join("\n");
   }

@@ -25,7 +25,6 @@ const schema = z.object({
 
 function buildTree(
   dir: string,
-  rootLen: number,
   depth: number,
   maxDepth: number,
   recursive: boolean,
@@ -44,7 +43,7 @@ function buildTree(
       lines.push(`${indent}${entry.name}/`);
       if (recursive) {
         const subDir = path.join(dir, entry.name);
-        lines.push(...buildTree(subDir, rootLen, depth + 1, maxDepth, recursive));
+        lines.push(...buildTree(subDir, depth + 1, maxDepth, recursive));
       }
     } else {
       const stat = fs.statSync(path.join(dir, entry.name));
@@ -72,7 +71,7 @@ export const listDirTool: ToolDefinition<typeof schema> = {
       return { error: `${dirPath} is a file, not a directory` };
     }
 
-    const lines = buildTree(targetPath, targetPath.length, 0, max_depth, recursive);
+    const lines = buildTree(targetPath, 0, max_depth, recursive);
     const display = (dirPath ?? ".") + "/\n" + lines.join("\n");
     return { tree: display };
   },

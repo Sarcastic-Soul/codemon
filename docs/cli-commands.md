@@ -46,6 +46,11 @@ codemon [options]
 | `--debug` | Enables verbose debug logging to file | Logs saved to `~/.codemon/debug.log` | `--debug` |
 | `--help` / `-h` | Displays CLI help message and exits | Boolean flag | `--help` |
 
+A flag that takes a value accepts either `--flag value` or `--flag=value`; use the `=` form for a
+value beginning with a dash. A flag left without its value, a value on a boolean flag, an
+unrecognised `--mode` or `--sandbox`, and an unknown flag are each rejected with a message and the
+usage block before anything starts up.
+
 ---
 
 ## 🔑 Environment Variables & `/connector` (BYOK)
@@ -59,9 +64,15 @@ Codemon resolves provider credentials and models in the following strict order:
 | Priority | Source | Description | Example |
 | :--- | :--- | :--- | :--- |
 | **1 (Highest)** | **CLI Flag** | Explicit startup override | `codemon --model anthropic:claude-sonnet-4-5` |
-| **2** | **Environment Variable** | Current shell session export | `export GEMINI_API_KEY="..."` |
-| **3** | **Stored User Config** | Saved interactively via `/connector` | `~/.codemon/config.json` (`0600` POSIX mode) |
-| **4 (Lowest)** | **Built-in Default** | Default fallback | `google:gemini-2.0-flash-exp` |
+| **2** | **Environment Variable** | Current shell session export | `export CODEMON_MODEL="..."`, `export GEMINI_API_KEY="..."` |
+| **3** | **Project-Local Config** | Per-checkout, gitignored | `<project>/.codemon/config.json` |
+| **4** | **Project Config** | Committed with the repository | `<project>/codemon.json` |
+| **5** | **Stored User Config** | Saved interactively via `/connector` | `~/.codemon/config.json` (`0600` POSIX mode) |
+| **6 (Lowest)** | **Built-in Default** | Default fallback | `google:gemini-2.0-flash-exp` |
+
+Both project files are read from the region (`--region`), not the directory Codemon was launched
+from. The model `/connector` saves lands in the user config as `defaultModel`, so a project file
+that pins `model` will keep overriding it — that is the intended direction of the chain.
 
 ### Using the `/connector` Interactive Command
 
@@ -107,10 +118,10 @@ Codemon uses 8 core moves to interact with your codebase:
 | `list_dir` | Lists directory structure and sub-paths | `read` | Auto-allowed in `safe`, `standard`, and `yolo` |
 | `grep` | Performs regex/literal search across files | `read` | Auto-allowed in `safe`, `standard`, and `yolo` |
 | `glob` | Finds files matching glob patterns | `read` | Auto-allowed in `safe`, `standard`, and `yolo` |
-| `edit_file` | Modifies file content using exact string find-and-replace | `write` | Auto-allowed in `standard` & `yolo`; prompts in `safe` |
+| `edit_file` | Replaces a block of file content; exact match first, fuzzy fallback, refuses ambiguous matches | `write` | Auto-allowed in `standard` & `yolo`; prompts in `safe` |
 | `write_file` | Creates or completely overwrites a file | `write` | Auto-allowed in `standard` & `yolo`; prompts in `safe` |
 | `bash` | Executes shell commands in subprocess or Docker container | `bash` | Prompts in `safe` & `standard`; auto-allowed in `yolo` |
-| `spawn_party_member` | Spawns a sub-agent to explore or solve a sub-task (max depth: 1) | `bash` | Requires `bash` permission; sub-agent runs isolated |
+| `spawn_subagent` | Spawns a sub-agent to explore or solve a sub-task (max depth: 1) | `bash` | Requires `bash` permission; the sub-agent inherits the parent's mode and auto-denies anything that would need a prompt |
 
 ---
 

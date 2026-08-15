@@ -62,7 +62,6 @@ export function SessionPicker({ sessions, projectRoot, onResume, onNew }: Sessio
         {sessions.map((s, i) => {
           const isActive = i === selected;
           const model = s.model.includes(":") ? s.model.split(":")[1] : s.model;
-          const msgCount = s.messages?.length ?? 0;
           return (
             <Box key={s.id} marginBottom={0}>
               <Text color={isActive ? "cyan" : "gray"}>
@@ -77,7 +76,10 @@ export function SessionPicker({ sessions, projectRoot, onResume, onNew }: Sessio
               <Text color={isActive ? "blue" : "gray"}>
                 🔵 {model ?? s.model}
               </Text>
-              <Text color={isActive ? "gray" : "gray"}>
+              <Text color="gray">
+                {" "}· {s.messageCount} msg
+              </Text>
+              <Text color="gray">
                 {" "}· {s.totalTokens.toLocaleString()} tk
               </Text>
             </Box>

@@ -1,138 +1,178 @@
-# 🐉 Codemon — Your AI Coding Partner
+<div align="center">
 
-> Tools are **moves**, the LLM is your **Codemon**, permission rules are the **Poké Ball**, sessions get saved to your **Pokédex**, project root is your **Region**, and sub-agents are **Party Members**.
+# 🐉 Codemon
 
-Built with **Bun**, **TypeScript**, **Ink (React TUI)**, and **Vercel AI SDK v7**.
+**Your AI coding partner in the terminal.**
+
+Tools are **moves**, the LLM is your **Codemon**, permission rules are the **Poké Ball**,
+sessions live in your **Pokédex**, the project root is your **Region**, and sub-agents are **Party Members**.
 
 [![CI](https://github.com/Sarcastic-Soul/codemon/actions/workflows/ci.yml/badge.svg)](https://github.com/Sarcastic-Soul/codemon/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/Sarcastic-Soul/codemon?display_name=tag&sort=semver)](https://github.com/Sarcastic-Soul/codemon/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Bun](https://img.shields.io/badge/Bun-1.0%2B-000000?logo=bun&logoColor=white)](https://bun.sh)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Platform](https://img.shields.io/badge/platform-linux%20x64%20%7C%20arm64%20%C2%B7%20macOS%20x64%20%7C%20arm64-lightgrey)](https://github.com/Sarcastic-Soul/codemon/releases/latest)
+
+</div>
 
 ---
+
+Codemon is a bring-your-own-key coding agent that runs entirely in your terminal. It streams
+responses live, previews every file edit as a diff before touching disk, asks before it runs
+anything dangerous, and remembers your sessions so you can pick up — or roll back — where you
+left off.
+
+Built with **Bun**, **TypeScript**, **Ink (React TUI)**, and the **Vercel AI SDK v7**.
+Ships as a single self-contained binary — no Node, no npm, no `node_modules`.
+
+## Quick Start
+
+```bash
+# 1. Install (Linux x64)
+curl -L https://github.com/Sarcastic-Soul/codemon/releases/latest/download/codemon-linux-x64 -o codemon
+chmod +x codemon && sudo mv codemon /usr/local/bin/
+
+# 2. Point it at a provider
+export GEMINI_API_KEY=your-api-key
+
+# 3. Battle
+cd your-project && codemon
+```
+
+No key handy? Launch `codemon` and run `/connector` to paste one in and pick a model
+interactively — it's saved to `~/.codemon/config.json` with `0600` permissions.
 
 ## Features
 
-- **Streaming TUI**: Dynamic terminal interface with real-time text streaming, active tool progress, diff previews, and permission prompts.
-- **BYOK Architecture & /connector**: Connect to Google Gemini, Anthropic Claude, OpenAI GPT, or Mistral. Use `/connector` in the TUI to interactively paste keys, select models, or switch providers mid-session. Credentials are stored securely in `~/.codemon/config.json` with `0600` POSIX mode permissions.
-- **Precedence Hierarchy**: `CLI flag (--model)` > `Env Var (GEMINI_API_KEY)` > `User Config (~/.codemon/config.json)` > `Default`.
-- **Poké Ball Permission Gate**: Three security modes: `safe` (ask for write/bash), `standard` (ask for write/bash, allow read), and `yolo` (auto-approve all). Supports "Always allow" per session.
-- **8 Moves**: `read_file`, `write_file`, `edit_file` (with fuzzy diff matching), `list_dir`, `bash`, `grep`, `glob`, `spawn_party_member`.
-- **Pokédex (SQLite Persistence)**: Sessions and messages automatically saved to `.codemon/pokedex.db`. Supports `--continue` to resume previous sessions and `--rewind` to roll back file changes.
-- **Repo Indexer**: Automatically scans stack markers, git status, recently modified files, and ASCII file trees to give Codemon instant project context.
-- **Party Members (Sub-Agents)**: `spawn_party_member` move delegates heavy tasks (e.g., codebase exploration) to isolated sub-agents with clean context windows.
-- **Battle Eval Suite**: Run `--eval` to evaluate agent performance across security boundaries, file edits, code search, and sub-agent delegation.
-- **Safari Zone v2 (Docker Sandbox)**: Run bash commands in isolated Docker containers with `--sandbox docker`.
-- **Single Binary Distribution**: Ships as a self-contained executable. No Node, no npm — just download and run.
+| | |
+|---|---|
+| ⚡ **Streaming TUI** | Real-time token streaming, live tool progress, inline diff previews, and permission prompts — all in an Ink-powered React terminal UI. |
+| 🔑 **BYOK, four providers** | Google Gemini, Anthropic Claude, OpenAI, and Mistral. Swap providers or models mid-session with `/connector`; keys never leave your machine. |
+| 🔴 **Poké Ball permission gate** | Every move is classified `read` / `write` / `bash` and checked against your mode before it runs. "Always allow" is remembered for the session, and every decision is written to an audit log. |
+| 🧰 **8 moves** | `read_file`, `write_file`, `edit_file` (fuzzy diff matching), `list_dir`, `bash`, `grep`, `glob`, `spawn_subagent`. |
+| 📕 **Pokédex persistence** | Sessions and messages are saved to SQLite at `.codemon/sessions.db`. Resume with `--continue`, list with `--sessions`, undo a whole session's file changes with `--rewind`. |
+| 🗺️ **Repo indexer** | On startup Codemon scans stack markers, git status, recently modified files, and the file tree, so it knows your project before you type a word. |
+| 👥 **Party members** | `spawn_subagent` hands heavy exploration to an isolated sub-agent with a clean context window. Sub-agents inherit the parent's permission mode and cannot spawn their own. |
+| 🏕️ **Safari Zone sandboxing** | A path jail keeps file access inside your region, and `--sandbox docker` runs bash inside a throwaway container. |
+| 🏆 **Battle eval suite** | `--eval` benchmarks the agent across security boundaries, file edits, code search, and sub-agent delegation. |
+| 📦 **Single binary** | `bun build --compile` produces one executable per platform, released automatically by CI. |
 
----
+## Usage
 
-## 📖 Documentation
+```bash
+codemon                                     # start in the current directory
+codemon --model anthropic:claude-sonnet-4-5 # pick a provider:model
+codemon --mode yolo                         # auto-approve every move
+codemon --region /path/to/project           # work in another directory
+codemon --continue                          # resume the most recent session
+codemon --rewind                            # restore files from the last session
+codemon --sessions                          # list recent sessions
+codemon --audit                             # show permission decisions
+codemon --sandbox docker                    # run bash inside a container
+codemon --no-index                          # skip repo indexing on startup
+codemon --eval                              # run the benchmark suite
+codemon --debug                             # log to ~/.codemon/debug.log
+```
 
-For detailed guides, architecture overviews, and troubleshooting help:
-- 💻 **[CLI Commands & Usage Reference](docs/cli-commands.md)**: Full options, flags, and environment variables.
-- 🏗️ **[Architecture Guide](docs/architecture.md)**: Battle Engine, Poké Ball permission gate, Moves system, Pokédex DB, and sub-agents.
-- 📦 **[Distribution & Release Guide](docs/distribution.md)**: Standalone binary compilation, CI/CD pipeline, and cross-platform releases.
-- 🛠️ **[Troubleshooting & FAQ](docs/troubleshooting.md)**: Solutions for API key errors, Docker issues, and database recovery.
+> **Running from source?** Replace `codemon` with `bun run dev --` —
+> e.g. `bun run dev -- --model google:gemini-2.0-flash-exp`.
 
----
+### Slash commands
 
-## Installation & Setup
+| Command | Aliases | Does |
+|---|---|---|
+| `/connector` | `/config`, `/model` | Open the provider & API key configurator |
+| `/help` | `/?` | List every slash command |
+| `/clear` | `/cls` | Clear the chat history display |
+| `/exit` | `/quit`, `/q` | Leave the battle (so does `Ctrl+C`) |
 
-### Option A — Pre-built Binary (Recommended)
+### Permission modes
 
-Download the latest binary for your platform from the [GitHub Releases page](https://github.com/Sarcastic-Soul/codemon/releases):
+| Mode | Read | Write | Bash |
+|---|---|---|---|
+| `safe` | auto-allow | ask | ask |
+| `standard` *(default)* | auto-allow | auto-allow | ask |
+| `yolo` | auto-allow | auto-allow | auto-allow |
+
+An unrecognised mode fails closed — everything gets confirmed.
+
+### Providers
+
+| Provider | Environment variable | Example model |
+|---|---|---|
+| Google | `GEMINI_API_KEY` / `GOOGLE_GENERATIVE_AI_API_KEY` | `google:gemini-2.0-flash-exp` |
+| Anthropic | `ANTHROPIC_API_KEY` | `anthropic:claude-sonnet-4-5` |
+| OpenAI | `OPENAI_API_KEY` | `openai:gpt-4o` |
+| Mistral | `MISTRAL_API_KEY` | `mistral:mistral-large-latest` |
+
+### Configuration precedence
+
+Highest wins:
+
+1. CLI flags — `--model`, `--mode`, `--sandbox`, …
+2. Environment — `CODEMON_MODEL`, provider API keys
+3. `<project>/.codemon/config.json` — project-local, gitignored
+4. `<project>/codemon.json` — committed with the repo
+5. `~/.codemon/config.json` — user-level; where `/connector` writes `defaultModel`
+6. Built-in defaults
+
+## Installation
+
+### Pre-built binary (recommended)
+
+Grab the latest build for your platform from the
+[Releases page](https://github.com/Sarcastic-Soul/codemon/releases):
 
 ```bash
 # Linux (x64)
 curl -L https://github.com/Sarcastic-Soul/codemon/releases/latest/download/codemon-linux-x64 -o codemon
-chmod +x codemon
-sudo mv codemon /usr/local/bin/
+chmod +x codemon && sudo mv codemon /usr/local/bin/
 
 # macOS (Apple Silicon)
 curl -L https://github.com/Sarcastic-Soul/codemon/releases/latest/download/codemon-macos-arm64 -o codemon
-chmod +x codemon
-sudo mv codemon /usr/local/bin/
+chmod +x codemon && sudo mv codemon /usr/local/bin/
 ```
 
-### Option B — Build from Source
+### From source
 
 ```bash
 git clone https://github.com/Sarcastic-Soul/codemon.git
 cd codemon
 bun install
-bun run build       # produces dist/codemon
-bash scripts/install.sh  # installs to /usr/local/bin or ~/.local/bin
+bun run build            # → dist/codemon
+bash scripts/install.sh  # → /usr/local/bin or ~/.local/bin
 ```
 
-Set your provider API key:
+## Documentation
+
+| Guide | Contents |
+|---|---|
+| 💻 [CLI Commands & Usage](docs/cli-commands.md) | Every flag, environment variable, and TUI control |
+| 🏗️ [Architecture](docs/architecture.md) | Battle engine, permission gate, moves registry, Pokédex, sub-agents |
+| 📦 [Distribution & Release](docs/distribution.md) | Binary compilation, cross-platform builds, CI/CD pipeline |
+| 🛠️ [Troubleshooting & FAQ](docs/troubleshooting.md) | API key errors, Docker issues, database recovery |
+
+## Development
 
 ```bash
-# Google Gemini (default)
-export GEMINI_API_KEY=your-api-key
-
-# Anthropic Claude
-export ANTHROPIC_API_KEY=your-api-key
-
-# OpenAI
-export OPENAI_API_KEY=your-api-key
-
-# Mistral
-export MISTRAL_API_KEY=your-api-key
+bun install
+bun run dev        # run the TUI from source
+bun test           # run the test suite
+bun run typecheck  # tsc --noEmit
+bun run build:all  # cross-platform binaries
 ```
 
----
+CI runs typecheck and tests on every push; tagged pushes build and publish
+release binaries for all platforms.
 
-## Usage
+## Security
 
-```bash
-# Start in current directory with default model (google:gemini-2.0-flash-exp)
-codemon
-
-# Use Claude Sonnet
-codemon --model anthropic:claude-sonnet-4-5
-
-# Start in YOLO mode (auto-approve all tool calls)
-codemon --mode yolo
-
-# Resume last session
-codemon --continue
-
-# Restore files modified during last session
-codemon --rewind
-
-# List past sessions
-codemon --sessions
-
-# Run in Docker sandbox mode
-codemon --sandbox docker
-
-# Run in another target directory
-codemon --region /path/to/project
-
-# Enable debug logging to ~/.codemon/debug.log
-codemon --debug
-
-# Run automated eval benchmark suite
-codemon --eval
-```
-
-> **Running from source**: Replace `codemon` with `bun run dev --` (e.g. `bun run dev -- --model google:gemini-2.0-flash-exp`)
-
----
-
-## Implementation Status
-
-- [x] Stage 1: Core loop (streaming agent, battle engine)
-- [x] Stage 2: Core moves (read/write/edit/list_dir)
-- [x] Stage 3: Bash, grep, glob + Safari Zone path jail
-- [x] Stage 4: Ink TUI (streaming chat, tool call view, diff preview, permission prompt, status bar)
-- [x] Stage 5: Pokédex (SQLite persistence, `--continue` session resume, `--rewind` checkpoint rollback, `--sessions`)
-- [x] Stage 6: Repo Indexer & Trainer's Guide system prompt integration
-- [x] Stage 7: Party Members (`spawn_party_member` sub-agents)
-- [x] Stage 8: Battle Eval Suite (`--eval` automated benchmarks)
-- [x] Stage 9: Safari Zone v2 (Docker sandbox runner via `--sandbox docker`)
-- [x] Stage 10: Distribution (single binary via `bun build --compile`, install script, GitHub Actions CI/CD release pipeline)
-
----
+Codemon executes shell commands and holds your API keys, so it ships with a
+permission gate, a path jail, an audit log, and `0600` credential storage.
+[SECURITY.md](SECURITY.md) documents the threat model — including what those
+controls deliberately do *not* cover — and how to report a vulnerability privately.
 
 ## License
 
-MIT
+Released under the [MIT License](LICENSE).

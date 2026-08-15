@@ -1,5 +1,5 @@
 import * as path from "path";
-import { shellExec } from "./shell-executor.ts";
+import { shellExecArgv } from "./shell-executor.ts";
 import type { ExecResult } from "./shell-executor.ts";
 import { logger } from "../utils/logger.ts";
 
@@ -12,7 +12,7 @@ let _imageBuilt: boolean | null = null;
 /** Check if Docker is installed and the daemon is running. */
 export async function isDockerAvailable(): Promise<boolean> {
   if (_dockerAvailable !== null) return _dockerAvailable;
-  const result = await shellExec("docker info --format '{{.ServerVersion}}' 2>/dev/null", 5000);
+  const result = await shellExecArgv(["docker", "info", "--format", "{{.ServerVersion}}"], 5000);
   _dockerAvailable = result.exitCode === 0 && result.stdout.trim() !== "";
   return _dockerAvailable;
 }
@@ -20,7 +20,10 @@ export async function isDockerAvailable(): Promise<boolean> {
 /** Check if the sandbox image exists locally. */
 async function isSandboxImageBuilt(): Promise<boolean> {
   if (_imageBuilt) return true;
-  const result = await shellExec(`docker image inspect ${SANDBOX_IMAGE} --format '{{.Id}}' 2>/dev/null`, 5000);
+  const result = await shellExecArgv(
+    ["docker", "image", "inspect", SANDBOX_IMAGE, "--format", "{{.Id}}"],
+    5000,
+  );
   _imageBuilt = result.exitCode === 0;
   return _imageBuilt;
 }
@@ -29,8 +32,8 @@ async function isSandboxImageBuilt(): Promise<boolean> {
 export async function buildSandboxImage(): Promise<void> {
   if (await isSandboxImageBuilt()) return;
   logger.info("docker-executor: building sandbox image", { image: SANDBOX_IMAGE });
-  const result = await shellExec(
-    `docker build -t ${SANDBOX_IMAGE} -f '${DOCKERFILE_PATH}' '${path.dirname(DOCKERFILE_PATH)}'`,
+  const result = await shellExecArgv(
+    ["docker", "build", "-t", SANDBOX_IMAGE, "-f", DOCKERFILE_PATH, path.dirname(DOCKERFILE_PATH)],
     300_000, // 5 min build timeout
   );
   if (result.exitCode !== 0) {
@@ -66,29 +69,29 @@ export async function dockerExec(
 
   logger.info("docker-executor: running command", { command, projectRoot });
 
-  const mountFlag = readOnly
-    ? `-v '${projectRoot}:/workspace:ro'`
-    : `-v '${projectRoot}:/workspace'`;
-
-  const networkFlag = allowNetwork ? "" : "--network none";
-  const safeCommand = command.replace(/'/g, "'\\''");
-
-  const dockerCmd = [
-    "docker run --rm",
+  // Assembled as argv so the host never parses this through a shell. `command`
+  // is one element, handed straight to the container's bash — it is the user's
+  // own command and is meant to be interpreted there, but only there.
+  const argv = [
+    "docker",
+    "run",
+    "--rm",
     "--init",
     `--memory=${memoryLimit}`,
     `--cpus=${cpuLimit}`,
-    networkFlag,
-    mountFlag,
-    "-w /workspace",
+    ...(allowNetwork ? [] : ["--network", "none"]),
+    "-v",
+    readOnly ? `${projectRoot}:/workspace:ro` : `${projectRoot}:/workspace`,
+    "-w",
+    "/workspace",
     `--stop-timeout=${Math.ceil(timeoutMs / 1000)}`,
     SANDBOX_IMAGE,
-    `bash -c '${safeCommand}'`,
-  ]
-    .filter(Boolean)
-    .join(" ");
+    "bash",
+    "-c",
+    command,
+  ];
 
-  return shellExec(dockerCmd, timeoutMs + 5000); // Extra 5s for docker overhead
+  return shellExecArgv(argv, timeoutMs + 5000); // Extra 5s for docker overhead
 }
 
 /**

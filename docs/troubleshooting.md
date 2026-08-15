@@ -45,7 +45,7 @@ bun run dev -- --model mistral:mistral-large-latest
 ### Error: `Cannot find module './registry.ts' or its corresponding type declarations`
 **Cause**: Circular type dependency resolution loop in TypeScript when loading move definitions.
 
-**Solution**: Move interface definitions out of `registry.ts` into `types.ts`. Import `MoveDefinition` directly from `src/moves/types.ts`. (This is already resolved in recent codebase builds).
+**Solution**: Move interface definitions out of `registry.ts` into `types.ts`. Import `ToolDefinition` directly from `src/tools/types.ts`. (This is already resolved in recent codebase builds).
 
 ### Error: `Could not resolve: "react-devtools-core"` during `bun run build`
 **Cause**: Missing optional development dependency required by `ink` when building standalone compiled binaries with Bun.
@@ -89,7 +89,7 @@ bun run dev -- --rewind
 ```
 
 ### Issue: Database file locked or corrupted
-**Cause**: Unexpected crash or multi-process lock on `.codemon/pokedex.db`.
+**Cause**: Unexpected crash or multi-process lock on `.codemon/sessions.db`.
 
 **Solution**:
 1. Check if another Codemon process is running:
@@ -98,12 +98,14 @@ bun run dev -- --rewind
    ```
 2. Run an integrity check to verify if the SQLite database is recoverable:
    ```bash
-   sqlite3 .codemon/pokedex.db "PRAGMA integrity_check;"
+   sqlite3 .codemon/sessions.db "PRAGMA integrity_check;"
    ```
 3. If SQLite reports unrecoverable corruption, back up and reset the database:
    ```bash
-   mv .codemon/pokedex.db .codemon/pokedex.db.bak
+   mv .codemon/sessions.db .codemon/sessions.db.bak
    ```
+   The next launch recreates it. Journalling is WAL, so `.codemon/sessions.db-wal`
+   and `-shm` may sit beside it while Codemon is running; move those too.
 
 ---
 

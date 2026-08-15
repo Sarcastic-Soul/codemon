@@ -3,7 +3,7 @@ import * as path from "path";
 import { z } from "zod";
 import { jailPath } from "../sandbox/path-jail.ts";
 import { dbSaveCheckpoint } from "../storage/checkpoints.repo.ts";
-import { getSession } from "../core/session.ts";
+import { getSession, ensureSessionPersisted } from "../core/session.ts";
 import type { ToolDefinition } from "./types.ts";
 
 const schema = z.object({
@@ -26,6 +26,8 @@ export const writeFileTool: ToolDefinition<typeof schema> = {
       try {
         const original = fs.readFileSync(absPath, "utf8");
         const session = getSession();
+        // The session row is written lazily; a checkpoint references it.
+        ensureSessionPersisted();
         dbSaveCheckpoint(session.id, absPath, original, "write_file");
       } catch {}
     }

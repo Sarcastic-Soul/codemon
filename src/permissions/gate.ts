@@ -21,23 +21,24 @@ export function checkPermission(
   toolName: string,
   permissionLevel: PermissionLevel,
   mode: PermissionMode,
+  args: Record<string, unknown> = {},
 ): GateDecision {
   // Check session-remembered "always allow"
   const key = alwaysKey(toolName, permissionLevel);
   if (sessionAlways.has(key)) {
-    recordDecision({ toolName, permissionLevel, args: {}, decision: "always-allow" });
+    recordDecision({ toolName, permissionLevel, args, decision: "always-allow" });
     return "allow";
   }
 
   const rules = getRuleSet(mode);
 
   if (rules.autoDeny.has(permissionLevel)) {
-    recordDecision({ toolName, permissionLevel, args: {}, decision: "deny" });
+    recordDecision({ toolName, permissionLevel, args, decision: "deny" });
     return "deny";
   }
 
   if (rules.autoAllow.has(permissionLevel)) {
-    recordDecision({ toolName, permissionLevel, args: {}, decision: "allow" });
+    recordDecision({ toolName, permissionLevel, args, decision: "allow" });
     return "allow";
   }
 
@@ -59,11 +60,12 @@ export function recordUserDecision(
   toolName: string,
   permissionLevel: PermissionLevel,
   allowed: boolean,
+  args: Record<string, unknown> = {},
 ) {
   recordDecision({
     toolName,
     permissionLevel,
-    args: {},
+    args,
     decision: allowed ? "ask-allow" : "ask-deny",
   });
 }

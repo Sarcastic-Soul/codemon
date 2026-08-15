@@ -75,7 +75,7 @@ git push origin v1.0.0
 
 ### 2. GitHub Actions Release Workflow
 
-The [release.yml](file:///media/anish-kumar/01DBC0C115A1D4B0/Projects/codemon/.github/workflows/release.yml) workflow triggers on version tags (`v*`) and:
+The [release.yml](../.github/workflows/release.yml) workflow triggers on version tags (`v*`) and:
 
 1. Builds native binaries on `ubuntu-latest` and `macos-latest` runners.
 2. Uploads all binaries as release artifacts.
@@ -84,7 +84,7 @@ The [release.yml](file:///media/anish-kumar/01DBC0C115A1D4B0/Projects/codemon/.g
 
 ### 3. CI Workflow
 
-The [ci.yml](file:///media/anish-kumar/01DBC0C115A1D4B0/Projects/codemon/.github/workflows/ci.yml) runs on every push/PR and:
+The [ci.yml](../.github/workflows/ci.yml) runs on every push/PR and:
 - Type-checks with `tsc --noEmit`
 - Builds the binary
 - Verifies `./dist/codemon --help` exits cleanly

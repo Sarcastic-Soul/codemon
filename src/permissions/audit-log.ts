@@ -1,26 +1,34 @@
 /**
- * In-memory audit log for every permission decision made during a session.
- * Will be persisted to Pokédex (SQLite) in Stage 5.
+ * Audit trail for every decision the permission gate makes.
+ *
+ * Decisions go straight to SQLite alongside sessions and checkpoints, and come
+ * back out through `codemon --audit`. There is no in-memory copy: this used to
+ * accumulate every decision in a module-level array that nothing ever read.
  */
+import { dbInsertDecision, type AuditDecision } from "../storage/audit.repo.ts";
+import { getSession } from "../core/session.ts";
+import { logger } from "../utils/logger.ts";
 
 export interface AuditEntry {
-  timestamp: string;
   toolName: string;
   permissionLevel: string;
   args: Record<string, unknown>;
-  decision: "allow" | "deny" | "ask-allow" | "ask-deny" | "always-allow";
+  decision: AuditDecision;
 }
 
-const entries: AuditEntry[] = [];
+export function recordDecision(entry: AuditEntry): void {
+  let sessionId = "";
+  try {
+    sessionId = getSession().id;
+  } catch {
+    // Evals and sub-agents run without a session row; the decision is still
+    // worth recording, just unattributed.
+  }
 
-export function recordDecision(entry: Omit<AuditEntry, "timestamp">) {
-  entries.push({ ...entry, timestamp: new Date().toISOString() });
-}
-
-export function getAuditLog(): readonly AuditEntry[] {
-  return entries;
-}
-
-export function clearAuditLog() {
-  entries.length = 0;
+  try {
+    dbInsertDecision({ ...entry, sessionId, timestamp: new Date().toISOString() });
+  } catch (err) {
+    // An audit failure must never block the tool call it is describing.
+    logger.warn("audit-log: could not persist decision", { error: String(err) });
+  }
 }

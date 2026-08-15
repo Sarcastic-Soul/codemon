@@ -4,97 +4,84 @@ import { render } from "ink";
 import { App } from "./app.tsx";
 import { SessionPicker } from "./components/SessionPicker.tsx";
 import { loadConfig } from "../config/load-config.ts";
+import type { CodemonConfig } from "../config/load-config.ts";
+import { SANDBOX_MODES, isSandboxMode } from "../config/defaults.ts";
+import { parseArgs, USAGE } from "./parse-args.ts";
 import { createRegistryProvider, parseModelString, validateApiKey } from "../providers/registry.ts";
 import { setProjectRoot } from "../sandbox/path-jail.ts";
+import { PERMISSION_MODES, isPermissionMode } from "../permissions/rules.ts";
 import { createSession, resumeLastSession, resumeSpecificSession } from "../core/session.ts";
 import { setCurrentProvider } from "../core/provider-instance.ts";
-import { initDb } from "../storage/db.ts";
+import { initDb, closeDb } from "../storage/db.ts";
 import {
   dbGetLastSessionForRegion,
   dbListSessions,
 } from "../storage/sessions.repo.ts";
 import type { StoredSession } from "../storage/sessions.repo.ts";
 import { dbGetCheckpoints, dbRestoreCheckpoints } from "../storage/checkpoints.repo.ts";
+import { dbListDecisions } from "../storage/audit.repo.ts";
 import { runEvalSuite } from "../evals/runner.ts";
 import { enableDebug } from "../utils/logger.ts";
 import * as path from "path";
 import * as fs from "fs";
 
 // ─── Parse CLI args ───────────────────────────────────────────────────────────
-const args = process.argv.slice(2);
-const flags: Record<string, string | boolean> = {};
-const positional: string[] = [];
-
-for (let i = 0; i < args.length; i++) {
-  const arg = args[i];
-  if (arg?.startsWith("--")) {
-    const key = arg.slice(2);
-    const next = args[i + 1];
-    if (next && !next.startsWith("--")) { flags[key] = next; i++; }
-    else flags[key] = true;
-  } else if (arg) {
-    positional.push(arg);
-  }
+// Flags are declared in parse-args.ts, which is also where a missing value or an
+// unknown mode turns into a message. Nothing below sees a malformed flag.
+const parsed = parseArgs(process.argv.slice(2));
+if (!parsed.ok) {
+  console.error(`❌ ${parsed.error}`);
+  console.error(USAGE);
+  process.exit(1);
 }
 
+const { flags } = parsed.args;
+
 if (flags.help || flags.h) {
-  console.log(`
-🐉 CODEMON — Your AI Coding Partner
-
-Usage: codemon [options]
-
-Options:
-  --region <path>       Project root directory (default: cwd)
-  --mode <mode>         Permission mode: safe | standard | yolo (default: standard)
-  --model <model>       Model: provider:model-name  (e.g. google:gemini-2.0-flash-exp)
-  --sandbox <mode>      Sandbox mode: subprocess | docker  (default: subprocess)
-  --no-index            Skip repo indexing on startup
-  --continue            Resume the most recent session for this region
-  --rewind              Restore all files to their state before the last session
-  --sessions            List recent sessions for this region
-  --eval                Run the automated eval suite
-  --debug               Enable debug logging to ~/.codemon/debug.log
-  --help                Show this help
-
-TUI Slash Commands (type while in interactive mode):
-  /connector            Open provider & API key configurator
-  /model                Alias for /connector
-  /exit, /quit, /q      Exit Codemon
-
-Supported Providers (BYOK):
-  google     GEMINI_API_KEY / GOOGLE_GENERATIVE_AI_API_KEY
-             e.g. google:gemini-2.0-flash-exp | google:gemini-2.5-pro
-  anthropic  ANTHROPIC_API_KEY
-             e.g. anthropic:claude-sonnet-4-5 | anthropic:claude-opus-4-5
-  openai     OPENAI_API_KEY
-             e.g. openai:gpt-4o | openai:o3-mini
-  mistral    MISTRAL_API_KEY
-             e.g. mistral:mistral-large-latest
-
-Examples:
-  codemon                                        # Start with default model
-  codemon --model anthropic:claude-sonnet-4-5    # Use Claude
-  codemon --continue                             # Resume last session
-  codemon --rewind                               # Restore files from last session
-  codemon --sandbox docker --mode yolo           # Docker sandbox, auto-approve all
-  codemon --eval                                 # Run benchmark eval suite
-  `);
+  console.log(USAGE);
   process.exit(0);
 }
 
+// ─── Project root ─────────────────────────────────────────────────────────────
+// Resolved before the config is read: `codemon.json` and `.codemon/config.json`
+// live under the region, so loading them from the launch directory would read
+// the wrong project's settings whenever `--region` points elsewhere.
+const projectRoot = path.resolve(typeof flags.region === "string" ? flags.region : process.cwd());
+
 // ─── Build config ─────────────────────────────────────────────────────────────
-const configOverrides: Record<string, unknown> = {};
-if (flags.mode) configOverrides.permissionMode = flags.mode;
-if (flags.model) configOverrides.model = flags.model;
-if (flags.sandbox) configOverrides.sandbox = flags.sandbox;
+const MODE_LIST = PERMISSION_MODES.join(" | ");
+const SANDBOX_LIST = SANDBOX_MODES.join(" | ");
+
+const configOverrides: Partial<CodemonConfig> = {};
+if (isPermissionMode(flags.mode)) configOverrides.permissionMode = flags.mode;
+if (isSandboxMode(flags.sandbox)) configOverrides.sandbox = flags.sandbox;
+if (typeof flags.model === "string") configOverrides.model = flags.model;
 if (flags.debug) configOverrides.debug = true;
 if (flags["no-index"]) configOverrides.repoIndex = false;
 
-const config = loadConfig(configOverrides as never);
+const config = loadConfig(configOverrides, { projectRoot });
+
+// The same values can arrive from a config file, which the flag parser never saw.
+if (!isPermissionMode(config.permissionMode)) {
+  console.error(
+    `❌ Unknown permission mode in config: "${config.permissionMode}"\n` +
+      `   Expected one of: ${MODE_LIST}\n` +
+      `   Check ~/.codemon/config.json, codemon.json and .codemon/config.json`,
+  );
+  process.exit(1);
+}
+
+if (!isSandboxMode(config.sandbox)) {
+  console.error(
+    `❌ Unknown sandbox mode in config: "${config.sandbox}"\n` +
+      `   Expected one of: ${SANDBOX_LIST}\n` +
+      `   Check ~/.codemon/config.json, codemon.json and .codemon/config.json`,
+  );
+  process.exit(1);
+}
+
 if (config.debug) enableDebug();
 
-// ─── Project root ─────────────────────────────────────────────────────────────
-const projectRoot = path.resolve(flags.region as string ?? process.cwd());
 setProjectRoot(projectRoot);
 process.chdir(projectRoot);
 
@@ -102,13 +89,33 @@ process.chdir(projectRoot);
 const dbPath = path.join(projectRoot, ".codemon", "sessions.db");
 initDb(dbPath);
 
-// Ensure .codemon is in .gitignore
-const gitignorePath = path.join(projectRoot, ".gitignore");
-if (fs.existsSync(gitignorePath)) {
-  const gi = fs.readFileSync(gitignorePath, "utf8");
-  if (!gi.includes(".codemon/")) {
-    fs.appendFileSync(gitignorePath, "\n# Codemon session data\n.codemon/\n");
+// WAL journaling leaves `-wal` and `-shm` beside the database until the last
+// connection closes. Every exit path goes through here, including the
+// subcommands that `process.exit` a few lines down.
+process.on("exit", closeDb);
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  process.on(signal, () => {
+    closeDb();
+    process.exit(signal === "SIGINT" ? 130 : 143);
+  });
+}
+
+// Ensure .codemon is in .gitignore. Created when absent — it only used to be
+// appended to, so a repo without a .gitignore showed the session database in
+// `git status`. Left alone entirely outside a repo: there is nothing to hide
+// from, and writing a stray .gitignore into someone's directory is worse than
+// not having one.
+try {
+  const gitignorePath = path.join(projectRoot, ".gitignore");
+  const existing = fs.existsSync(gitignorePath) ? fs.readFileSync(gitignorePath, "utf8") : null;
+  const insideRepo = existing !== null || fs.existsSync(path.join(projectRoot, ".git"));
+
+  if (insideRepo && !(existing ?? "").includes(".codemon/")) {
+    const needsNewline = existing !== null && existing !== "" && !existing.endsWith("\n");
+    fs.appendFileSync(gitignorePath, `${needsNewline ? "\n" : ""}# Codemon session data\n.codemon/\n`);
   }
+} catch {
+  // A read-only project root is not a reason to refuse to start.
 }
 
 // ─── Subcommands ──────────────────────────────────────────────────────────────
@@ -134,6 +141,43 @@ if (flags.sessions) {
       const age = new Date(s.lastActive).toLocaleString();
       console.log(`  ${s.id.slice(0, 8)}… | ${age} | ${s.model} | ${s.totalTokens} tokens`);
     }
+  }
+  process.exit(0);
+}
+
+// --audit: show what the permission gate decided, and why
+if (flags.audit) {
+  const wanted = typeof flags.audit === "string" ? flags.audit : undefined;
+  const candidates = dbListSessions(projectRoot, 50);
+  const target = wanted
+    ? candidates.find((s) => s.id.startsWith(wanted))
+    : candidates[0];
+
+  if (!target) {
+    console.log(
+      wanted
+        ? `❌ No session in this region starts with "${wanted}".`
+        : "No sessions found for this region.",
+    );
+    process.exit(wanted ? 1 : 0);
+  }
+
+  const decisions = dbListDecisions(target.id);
+  console.log(`\n🔍 Permission decisions for session ${target.id.slice(0, 8)}…\n`);
+
+  if (decisions.length === 0) {
+    console.log("  No decisions recorded. Sessions started before --audit existed have none.");
+  } else {
+    const icons: Record<string, string> = {
+      allow: "✅", "always-allow": "✅", "ask-allow": "👤", deny: "🚫", "ask-deny": "🙅",
+    };
+    for (const d of decisions) {
+      const when = new Date(d.createdAt).toLocaleTimeString();
+      const icon = icons[d.decision] ?? "•";
+      console.log(`  ${icon} ${when}  ${d.decision.padEnd(12)} ${d.toolName} (${d.permissionLevel})`);
+      console.log(`      ${d.args.slice(0, 120)}`);
+    }
+    console.log(`\n${decisions.length} decisions.`);
   }
   process.exit(0);
 }
@@ -202,6 +246,7 @@ if (flags.continue) {
     { exitOnCtrlC: false },
   );
   await waitUntilExit();
+  closeDb();
 
 } else {
   // Check for prior sessions in this directory
@@ -256,4 +301,5 @@ if (flags.continue) {
     { exitOnCtrlC: false },
   );
   await waitUntilExit();
+  closeDb();
 }

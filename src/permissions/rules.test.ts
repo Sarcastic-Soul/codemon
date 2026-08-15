@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { getRuleSet } from "./rules.ts";
+import { getRuleSet, isPermissionMode, PERMISSION_MODES, type PermissionMode } from "./rules.ts";
 
 describe("Poké Ball Permission Gate Rules", () => {
   test("safe mode auto-allows read, requires confirmation for write and bash", () => {
@@ -26,5 +26,26 @@ describe("Poké Ball Permission Gate Rules", () => {
     expect(yolo.autoAllow.has("write")).toBe(true);
     expect(yolo.autoAllow.has("bash")).toBe(true);
     expect(yolo.requireConfirm.size).toBe(0);
+  });
+
+  test("an unknown mode fails closed instead of returning undefined", () => {
+    // Modes reach here from config files and CLI flags that TypeScript never
+    // checks. This used to return undefined and take the gate down with it.
+    const bogus = getRuleSet("bogus" as PermissionMode);
+
+    expect(bogus).toBeDefined();
+    expect(bogus.autoAllow.size).toBe(0);
+    expect(bogus.requireConfirm.has("read")).toBe(true);
+    expect(bogus.requireConfirm.has("write")).toBe(true);
+    expect(bogus.requireConfirm.has("bash")).toBe(true);
+  });
+
+  test("isPermissionMode accepts exactly the three real modes", () => {
+    for (const mode of PERMISSION_MODES) {
+      expect(isPermissionMode(mode)).toBe(true);
+    }
+    for (const value of ["bogus", "", "SAFE", true, undefined, null, 3]) {
+      expect(isPermissionMode(value)).toBe(false);
+    }
   });
 });

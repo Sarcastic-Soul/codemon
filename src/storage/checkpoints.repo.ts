@@ -35,12 +35,33 @@ export function dbSaveCheckpoint(
 }
 
 export function dbGetCheckpoints(sessionId: string): StoredCheckpoint[] {
-  return getDb()
+  // SQLite hands back the column names as written — `file_path`, not `filePath`.
+  // Casting the rows straight to StoredCheckpoint made every field on this
+  // interface `undefined`, which is how `--rewind` came to restore nothing:
+  // `writeFileSync(undefined, undefined)` throws, and each file was reported as
+  // a failure with no name.
+  const rows = getDb()
     .query(
       `SELECT id, session_id, file_path, original_content, tool_name, created_at
        FROM checkpoints WHERE session_id = ? ORDER BY created_at ASC`,
     )
-    .all(sessionId) as StoredCheckpoint[];
+    .all(sessionId) as Array<{
+    id: number;
+    session_id: string;
+    file_path: string;
+    original_content: string;
+    tool_name: string;
+    created_at: string;
+  }>;
+
+  return rows.map((r) => ({
+    id: r.id,
+    sessionId: r.session_id,
+    filePath: r.file_path,
+    originalContent: r.original_content,
+    toolName: r.tool_name,
+    createdAt: r.created_at,
+  }));
 }
 
 /**

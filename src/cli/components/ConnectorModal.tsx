@@ -18,7 +18,6 @@ export interface ConnectorResult {
 }
 
 interface ConnectorModalProps {
-  currentModel: string;
   onClose: () => void;
   onSelectProviderModel: (result: ConnectorResult) => void;
 }
@@ -48,7 +47,7 @@ const PROVIDERS = [
 
 type Step = "select-provider" | "enter-key" | "select-model" | "custom-model";
 
-export function ConnectorModal({ currentModel, onClose, onSelectProviderModel }: ConnectorModalProps) {
+export function ConnectorModal({ onClose, onSelectProviderModel }: ConnectorModalProps) {
   const [step, setStep] = useState<Step>("select-provider");
   const [providerIndex, setProviderIndex] = useState(0);
   const [modelIndex, setModelIndex] = useState(0);

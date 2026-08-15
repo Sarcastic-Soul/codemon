@@ -1,5 +1,5 @@
 import type { Provider, ModelMessage } from "../providers/types.ts";
-import type { CodemonConfig } from "../config/defaults.ts";
+import { DEFAULTS, type CodemonConfig } from "../config/defaults.ts";
 import { buildToolSet, getTool } from "../tools/registry.ts";
 import { checkPermission, rememberAlways, recordUserDecision } from "../permissions/gate.ts";
 import { ContextManager } from "./context-manager.ts";
@@ -29,10 +29,27 @@ export type AgentEvent =
       permissionLevel: string;
       resolve: (decision: "allow" | "deny" | "always") => void;
     }
+  | {
+      // Emitted once per turn, after truncation, so a UI can show how full the
+      // window actually is rather than inferring it from cumulative spend.
+      type: "context";
+      estimatedTokens: number;
+      maxTokens: number;
+      percentUsed: number;
+      messageCount: number;
+    }
   | { type: "finish"; reason: string; usage?: { promptTokens: number; completionTokens: number } }
   | { type: "error"; error: Error };
 
 type UserDecision = "allow" | "deny" | "always";
+
+/** Finish reason yielded when the turn budget runs out. */
+export const MAX_TURNS_REASON = "max-turns";
+
+export interface TokenUsage {
+  promptTokens: number;
+  completionTokens: number;
+}
 
 /**
  * MessageStore — abstraction over message history.
@@ -41,7 +58,7 @@ type UserDecision = "allow" | "deny" | "always";
 export interface MessageStore {
   getMessages(): ModelMessage[];
   addMessage(msg: ModelMessage): void;
-  updateTokenUsage(tokens: number): void;
+  updateTokenUsage(usage: TokenUsage): void;
 }
 
 /** Create a fresh in-memory store (for sub-agents and evals) */
@@ -82,15 +99,51 @@ async function* _agentLoop(
   // Add the user message to history
   store.addMessage({ role: "user", content: userMessage });
 
+  // `config` can come straight from a hand-written config.json, so a value that
+  // would disable the ceiling falls back to the default rather than looping
+  // forever.
+  const maxTurns =
+    Number.isFinite(config.maxTurns) && config.maxTurns > 0
+      ? Math.floor(config.maxTurns)
+      : DEFAULTS.maxTurns;
+
   let continueLoop = true;
+  let turnsUsed = 0;
 
   while (continueLoop) {
+    if (turnsUsed >= maxTurns) {
+      // Only reachable when the model keeps asking for tools — a turn that ends
+      // with plain text exits below. Say so out loud: a silent stop is
+      // indistinguishable from the agent deciding it was finished.
+      const notice =
+        `⚠️ Stopped after ${maxTurns} tool-calling turns without a final answer ` +
+        `(max-turns budget). Nothing was rolled back — send another message to continue, ` +
+        `or raise \`maxTurns\` in your config.`;
+      yield { type: "text", text: notice };
+      store.addMessage({ role: "assistant", content: notice });
+      yield { type: "finish", reason: MAX_TURNS_REASON };
+      break;
+    }
+    turnsUsed++;
+
     const rawMessages = store.getMessages();
     const messages = contextManager.maybeTruncate(rawMessages, systemPrompt);
+
+    // Measured on what is actually being sent, so a trim shows up as the number
+    // dropping rather than as nothing at all.
+    const contextStats = contextManager.getStats(messages, systemPrompt);
+    yield {
+      type: "context",
+      estimatedTokens: contextStats.estimatedTokens,
+      maxTokens: config.maxContextTokens,
+      percentUsed: contextStats.percentUsed,
+      messageCount: contextStats.messageCount,
+    };
 
     logger.debug("agent-loop: calling LLM", { messageCount: messages.length });
 
     let assistantText = "";
+    let streamFailed = false;
     const pendingToolCalls: Array<{ toolCallId: string; toolName: string; args: Record<string, unknown> }> = [];
 
     for await (const event of provider.streamMessage({ messages, tools, system: systemPrompt, maxTokens: config.maxTokens })) {
@@ -110,15 +163,40 @@ async function* _agentLoop(
           break;
 
         case "finish":
-          if (event.usage) store.updateTokenUsage(event.usage.completionTokens);
+          // Both halves are recorded: on an agentic loop the prompt side is the
+          // overwhelming majority of spend, since every turn resends the whole
+          // history.
+          if (event.usage) store.updateTokenUsage(event.usage);
           yield { type: "finish", reason: event.finishReason ?? "end_turn", usage: event.usage };
           break;
 
         case "error":
           yield { type: "error", error: event.error! };
+          streamFailed = true;
           continueLoop = false;
           break;
       }
+
+      // An errored turn is over. Draining the rest of the stream and then
+      // running the tool calls it happened to collect executes side effects on
+      // behalf of a turn the model never finished.
+      if (streamFailed) break;
+    }
+
+    if (streamFailed) {
+      // Keep whatever text arrived, but drop the tool calls: their results will
+      // never exist, and an assistant message carrying an unanswered tool-call
+      // is the orphan shape providers reject on the next request.
+      if (assistantText) store.addMessage({ role: "assistant", content: assistantText });
+      for (const tc of pendingToolCalls) {
+        yield {
+          type: "tool-error",
+          toolCallId: tc.toolCallId,
+          toolName: tc.toolName,
+          error: "Turn aborted by a stream error before this tool ran",
+        };
+      }
+      break;
     }
 
     // Save assistant message
@@ -143,6 +221,17 @@ async function* _agentLoop(
     }> = [];
 
     for (const tc of pendingToolCalls) {
+      // Filtering the toolset above only shapes what the model is *offered*.
+      // It can still emit any name it likes, and `getTool` reads the global
+      // registry — so the filter has to be enforced here as well. Without this
+      // check the depth-1 sub-agent cap is a suggestion rather than a limit.
+      if (toolNameFilter && !toolNameFilter.has(tc.toolName)) {
+        const error = `Tool "${tc.toolName}" is not available to this agent`;
+        toolResults.push({ type: "tool-result", toolCallId: tc.toolCallId, toolName: tc.toolName, output: { type: "json", value: { error } } });
+        yield { type: "tool-error", toolCallId: tc.toolCallId, toolName: tc.toolName, error };
+        continue;
+      }
+
       const toolDef = getTool(tc.toolName);
       if (!toolDef) {
         toolResults.push({ type: "tool-result", toolCallId: tc.toolCallId, toolName: tc.toolName, output: { type: "json", value: { error: `Unknown tool: ${tc.toolName}` } } });
@@ -150,7 +239,7 @@ async function* _agentLoop(
         continue;
       }
 
-      const decision = checkPermission(tc.toolName, toolDef.permissionLevel, config.permissionMode);
+      const decision = checkPermission(tc.toolName, toolDef.permissionLevel, config.permissionMode, tc.args);
 
       if (decision === "deny") {
         toolResults.push({ type: "tool-result", toolCallId: tc.toolCallId, toolName: tc.toolName, output: { type: "json", value: { error: "Blocked by permission gate (permission denied)" } } });
@@ -173,7 +262,7 @@ async function* _agentLoop(
         await permPromise;
         const userDecision = decisionHolder.value;
         if (userDecision === "always") rememberAlways(tc.toolName, toolDef.permissionLevel);
-        recordUserDecision(tc.toolName, toolDef.permissionLevel, userDecision !== "deny");
+        recordUserDecision(tc.toolName, toolDef.permissionLevel, userDecision !== "deny", tc.args);
         if (userDecision === "deny") {
           toolResults.push({ type: "tool-result", toolCallId: tc.toolCallId, toolName: tc.toolName, output: { type: "json", value: { error: "User denied" } } });
           yield { type: "tool-error", toolCallId: tc.toolCallId, toolName: tc.toolName, error: "User denied" };
@@ -244,7 +333,22 @@ export async function runToCompletion(
     if (event.type === "tool-start") toolsUsed.push(event.toolName);
     if (event.type === "tool-error") errors.push(`${event.toolName}: ${event.error}`);
     if (event.type === "error") errors.push(event.error.message);
-    // permission-required: in yolo mode this never fires; in other modes it blocks forever
+
+    // The notice also lands in `output`, but a caller checking whether the run
+    // finished shouldn't have to grep prose for it.
+    if (event.type === "finish" && event.reason === MAX_TURNS_REASON) {
+      errors.push(`Turn budget exhausted after ${config.maxTurns} turns — the task may be incomplete`);
+    }
+
+    // There is no UI attached to a headless run, so a confirmation prompt has
+    // nobody to answer it. Deny and carry on: the loop awaits this promise, and
+    // leaving it unsettled hangs the run with no timeout.
+    if (event.type === "permission-required") {
+      errors.push(
+        `${event.toolName}: denied — ${event.permissionLevel}-level tools need confirmation in "${config.permissionMode}" mode, and a sub-agent has no way to ask`,
+      );
+      event.resolve("deny");
+    }
   }
 
   return { output, toolsUsed, errors };

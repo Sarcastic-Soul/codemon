@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React from "react";
 import { Box, Text } from "ink";
 import Spinner from "ink-spinner";
 
@@ -102,7 +102,9 @@ function resultSummary(toolName: string, result: Record<string, unknown>): strin
     const lines = String(r.content ?? "").split("\n").length;
     return `${lines} lines`;
   }
-  if (toolName === "grep") return `${r.count} matches`;
+  if (toolName === "grep") {
+    return `${r.count} matches${r.truncated ? " (output truncated)" : ""}`;
+  }
   if (toolName === "glob") {
     const files = r.files as string[];
     return `${files.length} files`;

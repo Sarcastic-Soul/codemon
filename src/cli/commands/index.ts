@@ -24,8 +24,10 @@ export interface CommandContext {
 export interface SlashCommand {
   /** All aliases that trigger this command (first is the canonical name) */
   names: string[];
-  /** Short description shown in /help */
+  /** Short description shown in /help and in `codemon --help` */
   description: string;
+  /** Two-or-three-word form for the side panel, which has ~15 columns for it */
+  hint: string;
   execute(ctx: CommandContext): void;
 }
 
