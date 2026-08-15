@@ -29,9 +29,15 @@ function localLinks(page: string): string[] {
     .filter((href) => !/^(https?:|#|mailto:)/.test(href));
 }
 
-/** Names that were refactored away in commit 050d466, plus the two renamed since. */
+/**
+ * Names that were refactored away in commit 050d466, plus the two renamed since.
+ * Matched case-insensitively, because the prose form is how one of them survived
+ * the first sweep: the README described the architecture guide as covering the
+ * "Battle engine" long after `battle-engine.ts` had become `agent-loop.ts`.
+ */
 const RETIRED = [
   "battle-engine",
+  "battle engine",
   "src/pokeball/",
   "src/moves/",
   "src/safari-zone/",
@@ -64,7 +70,7 @@ describe("documentation links", () => {
 describe("documentation names", () => {
   for (const page of PAGES) {
     test(`${page} names no retired module or file`, () => {
-      const body = fs.readFileSync(path.join(ROOT, page), "utf8");
+      const body = fs.readFileSync(path.join(ROOT, page), "utf8").toLowerCase();
       const found = RETIRED.filter((name) => body.includes(name));
 
       expect(found).toEqual([]);

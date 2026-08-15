@@ -149,7 +149,7 @@ bash scripts/install.sh  # → /usr/local/bin or ~/.local/bin
 | Guide | Contents |
 |---|---|
 | 💻 [CLI Commands & Usage](docs/cli-commands.md) | Every flag, environment variable, and TUI control |
-| 🏗️ [Architecture](docs/architecture.md) | Battle engine, permission gate, moves registry, Pokédex, sub-agents |
+| 🏗️ [Architecture](docs/architecture.md) | Agent loop, permission gate, moves registry, Pokédex, sub-agents |
 | 📦 [Distribution & Release](docs/distribution.md) | Binary compilation, cross-platform builds, CI/CD pipeline |
 | 🛠️ [Troubleshooting & FAQ](docs/troubleshooting.md) | API key errors, Docker issues, database recovery |
 
