@@ -30,7 +30,7 @@ import * as fs from "fs";
 // sees a bad value.
 const parsed = parseArgs(process.argv.slice(2));
 if (!parsed.ok) {
-  console.error(`❌ ${parsed.error}`);
+  console.error(`${parsed.error}`);
   console.error(USAGE);
   process.exit(1);
 }
@@ -63,7 +63,7 @@ const config = loadConfig(configOverrides, { projectRoot });
 // The same values can arrive from a config file, which the flag parser never saw.
 if (!isPermissionMode(config.permissionMode)) {
   console.error(
-    `❌ Unknown permission mode in config: "${config.permissionMode}"\n` +
+    `Unknown permission mode in config: "${config.permissionMode}"\n` +
       `   Expected one of: ${MODE_LIST}\n` +
       `   Check ~/.codemon/config.json, codemon.json and .codemon/config.json`,
   );
@@ -72,7 +72,7 @@ if (!isPermissionMode(config.permissionMode)) {
 
 if (!isSandboxMode(config.sandbox)) {
   console.error(
-    `❌ Unknown sandbox mode in config: "${config.sandbox}"\n` +
+    `Unknown sandbox mode in config: "${config.sandbox}"\n` +
       `   Expected one of: ${SANDBOX_LIST}\n` +
       `   Check ~/.codemon/config.json, codemon.json and .codemon/config.json`,
   );
@@ -131,7 +131,7 @@ if (flags.sessions) {
   if (sessions.length === 0) {
     console.log("No sessions found for this region.");
   } else {
-    console.log(`\n🗂️  Sessions for ${path.basename(projectRoot)}/\n`);
+    console.log(`\nSessions for ${path.basename(projectRoot)}/\n`);
     for (const s of sessions) {
       const age = new Date(s.lastActive).toLocaleString();
       console.log(`  ${s.id.slice(0, 8)}… | ${age} | ${s.model} | ${s.totalTokens} tokens`);
@@ -151,20 +151,20 @@ if (flags.audit) {
   if (!target) {
     console.log(
       wanted
-        ? `❌ No session in this region starts with "${wanted}".`
+        ? `No session in this region starts with "${wanted}".`
         : "No sessions found for this region.",
     );
     process.exit(wanted ? 1 : 0);
   }
 
   const decisions = dbListDecisions(target.id);
-  console.log(`\n🔍 Permission decisions for session ${target.id.slice(0, 8)}…\n`);
+  console.log(`\nPermission decisions for session ${target.id.slice(0, 8)}…\n`);
 
   if (decisions.length === 0) {
     console.log("  No decisions recorded. Sessions started before --audit existed have none.");
   } else {
     const icons: Record<string, string> = {
-      allow: "✅", "always-allow": "✅", "ask-allow": "👤", deny: "🚫", "ask-deny": "🙅",
+      allow: "+", "always-allow": "++", "ask-allow": "?", deny: "x", "ask-deny": "x?",
     };
     for (const d of decisions) {
       const when = new Date(d.createdAt).toLocaleTimeString();
@@ -181,20 +181,20 @@ if (flags.audit) {
 if (flags.rewind) {
   const lastSession = dbGetLastSessionForRegion(projectRoot);
   if (!lastSession) {
-    console.log("❌ No previous session found. Nothing to rewind.");
+    console.log("No previous session found. Nothing to rewind.");
     process.exit(1);
   }
 
   const checkpoints = dbGetCheckpoints(lastSession.id);
   if (checkpoints.length === 0) {
-    console.log("ℹ️  No file checkpoints found for the last session.");
+    console.log("No file checkpoints found for the last session.");
     process.exit(0);
   }
 
-  console.log(`\n⏪ Rewinding session ${lastSession.id.slice(0, 8)}… (${checkpoints.length} files)\n`);
+  console.log(`\nRewinding session ${lastSession.id.slice(0, 8)}… (${checkpoints.length} files)\n`);
   const results = dbRestoreCheckpoints(lastSession.id);
   for (const r of results) {
-    const icon = r.success ? "✅" : "❌";
+    const icon = r.success ? "+" : "x";
     console.log(`  ${icon} ${r.filePath}${r.error ? ` — ${r.error}` : ""}`);
   }
   console.log(`\nDone. ${results.filter((r) => r.success).length}/${results.length} files restored.`);
@@ -223,9 +223,9 @@ if (flags.continue) {
   const session = resumeLastSession(projectRoot);
   if (session) {
     resumed = true;
-    console.log(`\n📖 Resuming session ${session.id.slice(0, 8)}… (${session.messages.length} messages)\n`);
+    console.log(`\nResuming session ${session.id.slice(0, 8)}… (${session.messages.length} messages)\n`);
   } else {
-    console.log("ℹ️  No previous session found, starting fresh.\n");
+    console.log("No previous session found, starting fresh.\n");
     createSession(projectRoot, config.model);
   }
 
@@ -285,6 +285,13 @@ if (flags.continue) {
   }
 
   // ─── Phase 2: Main TUI ───────────────────────────────────────────────────
+  // The picker is a separate Ink root, so its frame is still on screen when it
+  // unmounts. The app then paints a full-height frame underneath it, the two
+  // together overflow the terminal, and Ink drops out of in-place updates —
+  // which is what tiled the side panel down the window. Wipe the screen and
+  // scrollback first so the app starts from a clean, exactly-one-screen frame.
+  if (process.stdout.isTTY) process.stdout.write("\x1b[2J\x1b[3J\x1b[H");
+
   const { waitUntilExit } = render(
     <App
       provider={provider}

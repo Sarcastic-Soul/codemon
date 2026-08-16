@@ -1,7 +1,8 @@
 import React from "react";
 import { Box, Text } from "ink";
 import { ToolCallView, type ToolCallEntry } from "./ToolCallView.tsx";
-import { DiffView, type DiffEntry } from "./DiffView.tsx";
+import { DiffView, diffViewRows, type DiffEntry } from "./DiffView.tsx";
+import { GLYPH } from "../theme.ts";
 
 export interface Message {
   role: "user" | "assistant";
@@ -21,6 +22,8 @@ interface ChatViewProps {
   maxRows?: number;
   /** Terminal width, for estimating how far a message wraps. */
   width?: number;
+  /** Messages to step back from the newest. 0 pins the view to the bottom. */
+  scrollOffset?: number;
 }
 
 /**
@@ -36,6 +39,8 @@ export interface TranscriptWindow {
   hidden: number;
   /** Index of `visible[0]` in the full history, for stable keys. */
   start: number;
+  /** How many newer ones are below the window — non-zero only when scrolled. */
+  newer: number;
 }
 
 /** The last `maxVisible` messages, whatever the length of the history. */
@@ -44,7 +49,7 @@ export function windowMessages(
   maxVisible: number = DEFAULT_MAX_VISIBLE,
 ): TranscriptWindow {
   const start = Math.max(0, messages.length - Math.max(1, maxVisible));
-  return { visible: messages.slice(start), hidden: start, start };
+  return { visible: messages.slice(start), hidden: start, start, newer: 0 };
 }
 
 /**
@@ -56,8 +61,8 @@ export function windowMessages(
  * the overflow pushed the prompt off the bottom of the screen.
  */
 export function estimateMessageRows(message: Message, width: number): number {
-  const usable = Math.max(20, width - 4); // borders and padding
-  let rows = 1 + 2; // header + top/bottom border
+  const usable = Math.max(20, width - 4); // padding
+  let rows = 1; // the speaker line
 
   for (const line of message.content.split("\n")) {
     rows += Math.max(1, Math.ceil(line.length / usable));
@@ -65,8 +70,10 @@ export function estimateMessageRows(message: Message, width: number): number {
 
   // Tool calls render one line each plus a frame; diffs are capped by DiffView.
   if (message.toolCalls?.length) rows += message.toolCalls.length + 2;
+  // Asked of DiffView rather than guessed: the two disagreeing (12 here, 50
+  // there) is what let a frame grow past the terminal and start scrolling.
   for (const diff of message.diffs ?? []) {
-    rows += Math.min(12, diff.unified.split("\n").length) + 2;
+    rows += diffViewRows(diff.unified);
   }
 
   return rows;
@@ -81,21 +88,35 @@ export function fitMessages(
   messages: Message[],
   maxRows: number,
   width: number,
+  scrollOffset: number = 0,
 ): TranscriptWindow {
-  if (messages.length === 0) return { visible: [], hidden: 0, start: 0 };
+  if (messages.length === 0) return { visible: [], hidden: 0, start: 0, newer: 0 };
 
+  // Scrolling back moves the *end* of the window earlier in the history; the
+  // fitting below then fills upward from there exactly as it does at the bottom.
+  const end = Math.max(1, messages.length - Math.max(0, scrollOffset));
   const budget = Math.max(1, maxRows);
   let used = 0;
-  let start = messages.length;
+  let start = end;
 
-  for (let i = messages.length - 1; i >= 0; i--) {
+  for (let i = end - 1; i >= 0; i--) {
     const rows = estimateMessageRows(messages[i]!, width) + 1; // +1 for the gap
-    if (used + rows > budget && start < messages.length) break;
+    if (used + rows > budget && start < end) break;
     used += rows;
     start = i;
   }
 
-  return { visible: messages.slice(start), hidden: start, start };
+  return {
+    visible: messages.slice(start, end),
+    hidden: start,
+    start,
+    newer: messages.length - end,
+  };
+}
+
+/** Largest useful scroll offset — one short of scrolling past the first message. */
+export function maxScrollOffset(messages: Message[]): number {
+  return Math.max(0, messages.length - 1);
 }
 
 export function ChatView({
@@ -104,6 +125,7 @@ export function ChatView({
   maxVisible = DEFAULT_MAX_VISIBLE,
   maxRows,
   width = 80,
+  scrollOffset = 0,
 }: ChatViewProps) {
   // Reserve room for the in-flight reply so a long stream does not shove the
   // prompt off-screen mid-turn.
@@ -111,17 +133,17 @@ export function ChatView({
     ? estimateMessageRows({ role: "assistant", content: streamingText }, width)
     : 0;
 
-  const { visible, hidden, start } =
+  const { visible, hidden, start, newer } =
     maxRows === undefined
       ? windowMessages(messages, maxVisible)
-      : fitMessages(messages, Math.max(1, maxRows - streamRows), width);
+      : fitMessages(messages, Math.max(1, maxRows - streamRows), width, scrollOffset);
 
   return (
     <Box flexDirection="column" gap={1}>
       {hidden > 0 && (
-        <Text dimColor>
-          … {hidden} earlier message{hidden === 1 ? "" : "s"} hidden — the full history is still in
-          the session and still sent to the model …
+        <Text color="gray" dimColor>
+          ↑ {hidden} earlier message{hidden === 1 ? "" : "s"} — PgUp / ctrl-U to scroll back
+          (all of it is still sent to the model)
         </Text>
       )}
       {visible.map((msg, i) => (
@@ -131,6 +153,12 @@ export function ChatView({
       ))}
       {streamingText !== undefined && streamingText !== "" && (
         <MessageBubble role="assistant" content={streamingText} streaming />
+      )}
+      {newer > 0 && (
+        // Without this, scrolling up looks like the conversation was lost.
+        <Text color="yellow" dimColor>
+          ↓ {newer} newer message{newer === 1 ? "" : "s"} — PgDn / ctrl-D, or ctrl-G for the latest
+        </Text>
       )}
     </Box>
   );
@@ -142,7 +170,7 @@ export function ChatView({
  */
 const MessageRow = React.memo(function MessageRow({ message }: { message: Message }) {
   return (
-    <Box flexDirection="column">
+    <Box flexDirection="column" flexShrink={0}>
       {message.content !== "" && <MessageBubble role={message.role} content={message.content} />}
       {message.toolCalls && message.toolCalls.length > 0 && (
         <ToolCallView calls={message.toolCalls} />
@@ -154,6 +182,14 @@ const MessageRow = React.memo(function MessageRow({ message }: { message: Messag
   );
 });
 
+/**
+ * A turn in the transcript.
+ *
+ * The two roles are told apart by weight rather than by matching frames: what
+ * you said is a solid grey block, what the model said is unframed body text on
+ * the terminal's own background. Two identical bordered boxes in different
+ * colours made every turn shout equally loudly and the transcript hard to skim.
+ */
 function MessageBubble({
   role,
   content,
@@ -164,20 +200,35 @@ function MessageBubble({
   streaming?: boolean;
 }) {
   const isUser = role === "user";
+  const lines = content.split("\n");
+
+  if (isUser) {
+    return (
+      <Box flexDirection="column" flexShrink={0}>
+        <Text color="cyan" bold>
+          {GLYPH.user} you
+        </Text>
+        {lines.map((line, i) => (
+          // Inverted block: dark text on grey reads as "this is mine, it is
+          // settled" and needs no border to separate it from the reply below.
+          <Text key={i} backgroundColor="gray" color="black" wrap="wrap">
+            {` ${line || " "} `}
+          </Text>
+        ))}
+      </Box>
+    );
+  }
 
   return (
-    <Box flexDirection="column">
-      <Box marginBottom={0}>
-        <Text
-          color={isUser ? "cyan" : "green"}
-          bold
-        >
-          {isUser ? "⚡ You" : "🐉 Codemon"}
-          {streaming ? <Text color="yellow"> ▋</Text> : null}
+    <Box flexDirection="column" flexShrink={0}>
+      <Box>
+        <Text color="green" bold>
+          {GLYPH.agent} codemon
         </Text>
+        {streaming ? <Text color="yellow"> ▋</Text> : null}
       </Box>
-      <Box paddingLeft={2} borderStyle="single" borderColor={isUser ? "cyan" : "green"} flexDirection="column">
-        {content.split("\n").map((line, i) => (
+      <Box paddingLeft={1} flexDirection="column">
+        {lines.map((line, i) => (
           <Text key={i} wrap="wrap">
             {line || " "}
           </Text>

@@ -14,6 +14,7 @@ function toToolOutput(value: unknown): { type: "text"; value: string } | { type:
 
 export type AgentEvent =
   | { type: "text"; text: string }
+  | { type: "reasoning"; text: string }
   | { type: "tool-start"; toolName: string; toolCallId: string; args: Record<string, unknown> }
   | { type: "tool-result"; toolCallId: string; toolName: string; result: unknown }
   | { type: "tool-error"; toolCallId: string; toolName: string; error: string }
@@ -146,6 +147,13 @@ async function* _agentLoop(
         case "text":
           assistantText += event.text ?? "";
           yield { type: "text", text: event.text ?? "" };
+          break;
+
+        // Not accumulated into `assistantText`: reasoning is shown live but is
+        // not part of the reply, and echoing it back into history would feed
+        // the model its own scratchpad next turn.
+        case "reasoning":
+          yield { type: "reasoning", text: event.text ?? "" };
           break;
 
         case "tool-call":

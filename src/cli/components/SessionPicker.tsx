@@ -47,9 +47,9 @@ export function SessionPicker({ sessions, projectRoot, onResume, onNew }: Sessio
   return (
     <Box flexDirection="column" paddingX={2} paddingY={1}>
       <Box marginBottom={1}>
-        <Text bold color="magenta">🐉 CODEMON</Text>
+        <Text bold color="magenta">CODEMON</Text>
         <Text dimColor>  —  </Text>
-        <Text color="cyan">🗺️ {shortPath(projectRoot)}</Text>
+        <Text color="cyan">{shortPath(projectRoot)}</Text>
       </Box>
 
       <Box borderStyle="round" borderColor="magenta" flexDirection="column" paddingX={2} paddingY={1} marginBottom={1}>
@@ -74,7 +74,7 @@ export function SessionPicker({ sessions, projectRoot, onResume, onNew }: Sessio
                 {" "}{formatAge(s.lastActive)}{" "}
               </Text>
               <Text color={isActive ? "blue" : "gray"}>
-                🔵 {model ?? s.model}
+                ◓ {model ?? s.model}
               </Text>
               <Text color="gray">
                 {" "}· {s.messageCount} msg
@@ -92,7 +92,7 @@ export function SessionPicker({ sessions, projectRoot, onResume, onNew }: Sessio
             {selected === sessions.length ? "❯ " : "  "}
           </Text>
           <Text color={selected === sessions.length ? "green" : "gray"} bold={selected === sessions.length}>
-            ✨ Start a new session
+            Start a new session
           </Text>
         </Box>
       </Box>

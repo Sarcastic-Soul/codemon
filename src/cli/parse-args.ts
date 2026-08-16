@@ -54,7 +54,7 @@ const SLASH_COMMANDS = ALL_COMMANDS.map(
 ).join("\n");
 
 export const USAGE = `
-🐉 CODEMON — Your AI Coding Partner
+CODEMON — Your AI Coding Partner
 
 Usage: codemon [options]
 

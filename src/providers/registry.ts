@@ -118,6 +118,13 @@ export function createRegistryProvider(
             yield { type: "text", text: part.text } satisfies StreamEvent;
             break;
 
+          // Models that think out loud emit this before any answer text. It is
+          // shown dimmed rather than dropped: on a long tool-using turn it is
+          // the only sign of what the model is actually doing.
+          case "reasoning-delta":
+            yield { type: "reasoning", text: part.text } satisfies StreamEvent;
+            break;
+
           case "tool-call": {
             const tc = part as unknown as {
               toolCallId: string;

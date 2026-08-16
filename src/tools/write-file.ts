@@ -1,5 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
+import * as diffLib from "diff";
 import { z } from "zod";
 import { jailPath } from "../sandbox/path-jail.ts";
 import { dbSaveCheckpoint } from "../storage/checkpoints.repo.ts";
@@ -21,10 +22,13 @@ export const writeFileTool: ToolDefinition<typeof schema> = {
     const absPath = jailPath(filePath);
     const dir = path.dirname(absPath);
 
+    const existed = fs.existsSync(absPath) && fs.statSync(absPath).isFile();
+    let original = "";
+
     // Checkpoint original content before overwriting
-    if (fs.existsSync(absPath) && fs.statSync(absPath).isFile()) {
+    if (existed) {
       try {
-        const original = fs.readFileSync(absPath, "utf8");
+        original = fs.readFileSync(absPath, "utf8");
         const session = getSession();
         // The session row is written lazily; a checkpoint references it.
         ensureSessionPersisted();
@@ -34,6 +38,18 @@ export const writeFileTool: ToolDefinition<typeof schema> = {
 
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(absPath, content, "utf8");
-    return { success: true, path: filePath, bytes: content.length };
+
+    // A diff, like edit_file returns. Without one the UI had nothing to draw, so
+    // overwriting a file showed only "done" while a targeted edit showed the
+    // change — the more destructive operation was the one you could not see.
+    const unified = diffLib.createPatch(filePath, original, content, "", "");
+
+    return {
+      success: true,
+      path: filePath,
+      bytes: content.length,
+      created: !existed,
+      diff: unified,
+    };
   },
 };

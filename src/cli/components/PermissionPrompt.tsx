@@ -23,16 +23,16 @@ export function PermissionPrompt({
   const levelColor = permissionLevel === "bash" ? "red" : "yellow";
   const levelLabel =
     permissionLevel === "bash"
-      ? "🔴 DANGEROUS"
+      ? "DANGEROUS"
       : permissionLevel === "write"
-      ? "🟡 WRITE"
-      : "🟢 READ";
+      ? "[~] WRITE"
+      : "[=] READ";
 
   return (
     <Box flexDirection="column" borderStyle="double" borderColor={levelColor} padding={1} marginY={1}>
       <Box marginBottom={1}>
         <Text bold color={levelColor}>
-          ⚾ Poké Ball — Permission Required
+          [o] Poké Ball — Permission Required
         </Text>
       </Box>
 

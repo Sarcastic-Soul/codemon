@@ -59,7 +59,7 @@ describe("transcript windowing", () => {
   });
 
   test("an empty history windows to nothing rather than throwing", () => {
-    expect(windowMessages([], 12)).toEqual({ visible: [], hidden: 0, start: 0 });
+    expect(windowMessages([], 12)).toEqual({ visible: [], hidden: 0, start: 0, newer: 0 });
   });
 });
 

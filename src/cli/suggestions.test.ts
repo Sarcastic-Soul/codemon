@@ -12,7 +12,15 @@ import {
   type Suggestion,
 } from "./suggestions.ts";
 import { buildFileIndex, resetFileIndex } from "./file-index.ts";
-import { estimateMessageRows, fitMessages, type Message } from "./components/ChatView.tsx";
+import { suggestionWindow } from "./components/SuggestionPopup.tsx";
+import { tailLines } from "./components/ReasoningView.tsx";
+import { buildTips } from "./components/ThinkingIndicator.tsx";
+import { ALL_COMMANDS } from "./commands/index.ts";
+import { estimateMessageRows, fitMessages, maxScrollOffset, type Message } from "./components/ChatView.tsx";
+import { diffFromResult as diffFromResultSync } from "./app.tsx";
+import { diffViewRows, DIFF_MAX_LINES } from "./components/DiffView.tsx";
+import { bannerVariant } from "./components/Banner.tsx";
+import { FALLBACK_SIZE } from "./hooks/use-terminal-size.ts";
 
 const file = (value: string): Suggestion => ({ value, label: value, kind: "file" });
 
@@ -190,6 +198,263 @@ describe("transcript fits the terminal", () => {
   });
 
   test("an empty history is not a special case", () => {
-    expect(fitMessages([], 20, 80)).toEqual({ visible: [], hidden: 0, start: 0 });
+    expect(fitMessages([], 20, 80)).toEqual({ visible: [], hidden: 0, start: 0, newer: 0 });
+  });
+});
+
+describe("command list completeness", () => {
+  test("every alias is completable, not just the canonical name", () => {
+    // Only emitting canonical names showed 4 entries when 10 exist, and left
+    // /q and /model — both of which dispatch — impossible to complete.
+    const labels = commandSuggestions().map((s) => s.label);
+
+    expect(labels).toEqual(
+      expect.arrayContaining(["/exit", "/quit", "/q", "/connector", "/config", "/model", "/help", "/clear"]),
+    );
+    expect(labels.length).toBeGreaterThanOrEqual(10);
+  });
+
+  test("an alias says what it is an alias of", () => {
+    const q = commandSuggestions().find((s) => s.label === "/q")!;
+    expect(q.detail).toBe("alias of /exit");
+  });
+
+  test("typing a bare slash offers every command, not a truncated few", () => {
+    const all = rankSuggestions(commandSuggestions(), "");
+    expect(all.length).toBe(commandSuggestions().length);
+  });
+
+  test("an alias completes to itself", () => {
+    const input = "/q";
+    const query = detectCompletion(input)!;
+    const [first] = rankSuggestions(commandSuggestions(), "q", 1);
+    expect(applyCompletion(input, query, first!)).toBe("/q ");
+  });
+});
+
+describe("suggestionWindow", () => {
+  test("a short list is shown whole, with no scrolling", () => {
+    expect(suggestionWindow(3, 0, 5)).toEqual({ offset: 0, size: 3 });
+  });
+
+  test("the window follows the cursor down a long list", () => {
+    const { offset, size } = suggestionWindow(10, 7, 5);
+    expect(size).toBe(5);
+    expect(offset).toBeLessThanOrEqual(7);
+    expect(offset + size).toBeGreaterThan(7); // cursor stays visible
+  });
+
+  test("it never scrolls past either end", () => {
+    expect(suggestionWindow(10, 0, 5).offset).toBe(0);
+    expect(suggestionWindow(10, 9, 5).offset).toBe(5); // last full page
+  });
+
+  test("the cursor is visible at every position", () => {
+    for (let i = 0; i < 10; i++) {
+      const { offset, size } = suggestionWindow(10, i, 5);
+      expect(i).toBeGreaterThanOrEqual(offset);
+      expect(i).toBeLessThan(offset + size);
+    }
+  });
+});
+
+describe("reasoning view", () => {
+  test("keeps only the tail — it is context, not the answer", () => {
+    const text = Array.from({ length: 20 }, (_, i) => `line ${i}`).join("\n");
+    const lines = tailLines(text, 4, 80);
+    expect(lines).toEqual(["line 16", "line 17", "line 18", "line 19"]);
+  });
+
+  test("a long unbroken line is wrapped, not truncated away", () => {
+    expect(tailLines("x".repeat(250), 10, 100)).toHaveLength(3);
+  });
+
+  test("blank lines do not eat the budget", () => {
+    expect(tailLines("a\n\n\nb", 4, 80)).toEqual(["a", "b"]);
+  });
+});
+
+describe("thinking tips", () => {
+  test("are built from the registry, so a new command advertises itself", () => {
+    const tips = buildTips();
+    expect(tips.some((t) => t.startsWith("/connector"))).toBe(true);
+    expect(tips.some((t) => t.includes("@"))).toBe(true);
+    expect(tips.length).toBeGreaterThan(ALL_COMMANDS.length);
+  });
+
+  test("a command with aliases mentions them", () => {
+    expect(buildTips().find((t) => t.startsWith("/exit"))).toContain("also /quit");
+  });
+});
+
+describe("transcript scrollback", () => {
+  const msg = (content: string): Message => ({ role: "assistant", content });
+  const history = Array.from({ length: 30 }, (_, i) => msg(`message ${i}`));
+
+  test("offset 0 shows the newest messages", () => {
+    // Pinning the layout to the terminal height removed the terminal's own
+    // scrollback, so the transcript has to provide it — but the default must
+    // still be the live end of the conversation.
+    const { visible } = fitMessages(history, 20, 80, 0);
+    expect(visible.at(-1)!.content).toBe("message 29");
+  });
+
+  test("scrolling back moves the window earlier in the history", () => {
+    const { visible } = fitMessages(history, 20, 80, 5);
+    expect(visible.at(-1)!.content).toBe("message 24");
+  });
+
+  test("scrolling past the start clamps to the first message", () => {
+    const { visible, hidden } = fitMessages(history, 20, 80, 999);
+    expect(visible[0]!.content).toBe("message 0");
+    expect(hidden).toBe(0);
+  });
+
+  test("the window still fits the row budget while scrolled", () => {
+    const tall = Array.from({ length: 30 }, () => msg("line\n".repeat(4)));
+    const { visible } = fitMessages(tall, 24, 80, 6);
+    const used = visible.reduce((n, m) => n + estimateMessageRows(m, 80) + 1, 0);
+    expect(used).toBeLessThanOrEqual(24);
+  });
+
+  test("maxScrollOffset stops one short of scrolling the history away", () => {
+    expect(maxScrollOffset(history)).toBe(29);
+    expect(maxScrollOffset([])).toBe(0);
+    // Never scroll to a blank screen.
+    expect(fitMessages(history, 20, 80, maxScrollOffset(history)).visible.length).toBeGreaterThan(0);
+  });
+});
+
+describe("write_file reports a diff", () => {
+  test("the more destructive tool is no longer the invisible one", async () => {
+    // edit_file returned a diff and write_file did not, so overwriting a file
+    // showed only "done" while a targeted edit rendered its change.
+    const { writeFileTool } = await import("../tools/write-file.ts");
+    const { setProjectRoot, getProjectRoot } = await import("../sandbox/path-jail.ts");
+
+    const previous = getProjectRoot();
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "codemon-write-"));
+    setProjectRoot(root);
+
+    try {
+      const created = (await writeFileTool.execute({ path: "poem.txt", content: "one\ntwo\n" })) as
+        Record<string, unknown>;
+      expect(created.created).toBe(true);
+      expect(String(created.diff)).toContain("+one");
+
+      const overwritten = (await writeFileTool.execute({
+        path: "poem.txt",
+        content: "one\nthree\n",
+      })) as Record<string, unknown>;
+
+      expect(overwritten.created).toBe(false);
+      expect(String(overwritten.diff)).toContain("-two");
+      expect(String(overwritten.diff)).toContain("+three");
+    } finally {
+      setProjectRoot(previous);
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("tool result reaches the diff view", () => {
+  test("a write_file result now produces a renderable diff entry", async () => {
+    // This is the join that was broken: write_file's result had no `diff`, so
+    // diffFromResult returned null and the UI drew nothing for an overwrite.
+    const { diffFromResult } = await import("./app.tsx");
+
+    expect(diffFromResult({ success: true, path: "a.txt", bytes: 3 })).toBeNull();
+    expect(
+      diffFromResult({ success: true, path: "a.txt", bytes: 3, diff: "@@\n+one\n" }),
+    ).toEqual({ unified: "@@\n+one\n", path: "a.txt" });
+  });
+
+  test("a fuzzy edit_file result keeps its similarity marker", () => {
+    expect(
+      diffFromResultSync({ path: "a.txt", diff: "@@\n-x\n+y\n", strategy: "fuzzy", similarity: 0.8 }),
+    ).toEqual({ unified: "@@\n-x\n+y\n", path: "a.txt", fuzzy: { similarity: 0.8 } });
+  });
+});
+
+describe("the frame never outgrows the terminal", () => {
+  const msg = (content: string): Message => ({ role: "assistant", content });
+
+  test("the estimator agrees with what DiffView actually draws", () => {
+    // These two disagreed — 12 rows estimated, 50 drawn. A frame taller than the
+    // terminal makes Ink scroll instead of repaint in place, which tiled the
+    // side panel down the window.
+    const unified = Array.from({ length: 40 }, (_, i) => `+line ${i}`).join("\n");
+    const withDiff: Message = { role: "assistant", content: "done", diffs: [{ unified, path: "a.txt" }] };
+
+    const estimated = estimateMessageRows(withDiff, 80);
+    const drawn = 1 + 1 + diffViewRows(unified); // header + body line + the diff
+
+    expect(estimated).toBe(drawn);
+  });
+
+  test("a diff is bounded no matter how large the change", () => {
+    const huge = Array.from({ length: 5000 }, (_, i) => `+line ${i}`).join("\n");
+    expect(diffViewRows(huge)).toBeLessThan(20);
+    expect(diffViewRows(huge, DIFF_MAX_LINES)).toBe(diffViewRows(huge));
+  });
+
+  test("a short diff is not padded to the cap", () => {
+    expect(diffViewRows("+one\n-two")).toBeLessThan(diffViewRows("+one\n".repeat(30)));
+  });
+
+  test("a transcript of huge diffs still fits its row budget", () => {
+    const unified = Array.from({ length: 200 }, (_, i) => `+line ${i}`).join("\n");
+    const history: Message[] = Array.from({ length: 12 }, () => ({
+      role: "assistant",
+      content: "wrote the file",
+      diffs: [{ unified, path: "a.txt" }],
+    }));
+
+    const { visible } = fitMessages(history, 30, 80);
+    const used = visible.reduce((n, m) => n + estimateMessageRows(m, 80) + 1, 0);
+
+    // The newest message is always kept whole, so allow for exactly that one
+    // overshooting; everything beyond it must respect the budget.
+    expect(used).toBeLessThanOrEqual(30 + estimateMessageRows(history[0]!, 80));
+    expect(visible.length).toBeLessThan(history.length);
+  });
+});
+
+describe("the banner adapts to the window", () => {
+  test("a wide terminal gets the pokeball beside the wordmark", () => {
+    expect(bannerVariant(30, 120)).toBe("pair");
+  });
+
+  test("a narrower one drops the pokeball before it would wrap", () => {
+    // A wrapped banner is worse than a smaller one: it is the first thing drawn
+    // and would push the prompt off a short screen.
+    expect(bannerVariant(30, 70)).toBe("wordmark");
+  });
+
+  test("too narrow for the wordmark falls back to one line", () => {
+    expect(bannerVariant(30, 50)).toBe("line");
+  });
+
+  test("a short terminal uses one line however wide it is", () => {
+    expect(bannerVariant(8, 200)).toBe("line");
+  });
+
+  test("the thresholds are ordered, so shrinking only ever simplifies", () => {
+    const rank = { pair: 2, wordmark: 1, line: 0 };
+    let previous = rank[bannerVariant(30, 200)];
+    for (let width = 200; width >= 20; width -= 5) {
+      const current = rank[bannerVariant(30, width)];
+      expect(current).toBeLessThanOrEqual(previous);
+      previous = current;
+    }
+  });
+});
+
+describe("terminal size fallback", () => {
+  test("a pipe with no reported size still gets a usable layout", () => {
+    // stdout.columns/rows are undefined when output is not a TTY; a zero here
+    // would collapse the whole layout.
+    expect(FALLBACK_SIZE.columns).toBeGreaterThan(0);
+    expect(FALLBACK_SIZE.rows).toBeGreaterThan(0);
   });
 });

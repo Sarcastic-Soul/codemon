@@ -11,7 +11,7 @@ export interface ProviderConfig {
 }
 
 export interface StreamEvent {
-  type: "text" | "tool-call" | "tool-result" | "finish" | "error";
+  type: "text" | "reasoning" | "tool-call" | "tool-result" | "finish" | "error";
   text?: string;
   toolCallId?: string;
   toolName?: string;

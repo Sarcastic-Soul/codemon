@@ -7,7 +7,7 @@ export const helpCommand = {
   hint: "help",
   execute(ctx: CommandContext): void {
     const lines = [
-      "📖 **Available slash commands:**",
+      "**Available slash commands:**",
       "",
       ...ALL_COMMANDS.map((cmd) => `  ${cmd.names.join(", ").padEnd(20)} — ${cmd.description}`),
       "",

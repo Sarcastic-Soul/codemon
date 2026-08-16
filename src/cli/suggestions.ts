@@ -28,8 +28,14 @@ export interface CompletionQuery {
   start: number;
 }
 
-/** Rows of suggestions on screen at once. */
-export const MAX_SUGGESTIONS = 6;
+/** Rows of suggestions on screen at once; the rest are reached by scrolling. */
+export const SUGGESTION_WINDOW = 5;
+
+/**
+ * Ceiling on ranked matches. Well above the window because the list scrolls —
+ * capping at the window size was what hid six of the ten command names.
+ */
+export const MAX_SUGGESTIONS = 50;
 
 /**
  * What the input is currently asking to complete, or null.
@@ -75,14 +81,22 @@ export function applyCompletion(
   return `${head}${trigger}${suggestion.value}${separator}${tail.trimStart()}`;
 }
 
-/** Slash commands as suggestions, canonical name first. */
+/**
+ * Every slash command name, aliases included.
+ *
+ * Listing only the canonical name showed four entries when ten exist, and made
+ * `/q` and `/model` uncompletable even though both dispatch. An alias is marked
+ * so the canonical spelling is still obvious.
+ */
 export function commandSuggestions(): Suggestion[] {
-  return ALL_COMMANDS.map((cmd) => ({
-    value: cmd.names[0]!.replace(/^\//, ""),
-    label: cmd.names[0]!,
-    detail: cmd.description,
-    kind: "command" as const,
-  }));
+  return ALL_COMMANDS.flatMap((cmd) =>
+    cmd.names.map((name, index) => ({
+      value: name.replace(/^\//, ""),
+      label: name,
+      detail: index === 0 ? cmd.description : `alias of ${cmd.names[0]}`,
+      kind: "command" as const,
+    })),
+  );
 }
 
 /**

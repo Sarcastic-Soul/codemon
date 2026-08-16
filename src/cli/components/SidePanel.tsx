@@ -1,7 +1,7 @@
 import React from "react";
 import { Box, Text } from "ink";
 import { formatTokenCount } from "../../utils/tokenizer.ts";
-import { ALL_COMMANDS } from "../commands/index.ts";
+import { GLYPH, MODE_GLYPH, PROVIDER_GLYPH, PANEL_MARK } from "../theme.ts";
 
 interface SidePanelProps {
   model: string;
@@ -18,17 +18,6 @@ interface SidePanelProps {
   sessionId?: string;
 }
 
-const PROVIDER_ICONS: Record<string, string> = {
-  google: "🔵",
-  anthropic: "🟠",
-  openai: "🟢",
-  mistral: "🟣",
-};
-const MODE_ICONS: Record<string, string> = {
-  safe: "🛡️ ",
-  standard: "⚾ ",
-  yolo: "🔥 ",
-};
 const MODE_COLORS: Record<string, string> = {
   safe: "green",
   standard: "yellow",
@@ -36,10 +25,6 @@ const MODE_COLORS: Record<string, string> = {
 };
 
 /** Read from the dispatcher's registry, so the cheatsheet cannot drift. */
-const COMMANDS = ALL_COMMANDS.map((cmd) => ({
-  name: cmd.names[0] ?? "/unknown",
-  desc: cmd.hint,
-}));
 
 /** Matches the context manager: it trims at 80% and trims down to 60%. */
 const WARN_PERCENT = 60;
@@ -109,8 +94,8 @@ export const SidePanel = React.memo(function SidePanel({
   const sepIdx = sep ? model.indexOf(sep) : -1;
   const providerPart = sepIdx > -1 ? model.slice(0, sepIdx) : "";
   const modelPart = sepIdx > -1 ? model.slice(sepIdx + 1) : model;
-  const providerIcon = PROVIDER_ICONS[providerPart] ?? "🤖";
-  const modeIcon = MODE_ICONS[permissionMode] ?? "⚾ ";
+
+  const modeGlyph = MODE_GLYPH[permissionMode] ?? MODE_GLYPH.standard!;
   const modeColor = MODE_COLORS[permissionMode] ?? "white";
 
   const { percentUsed, bar: tokenBar, color: barColor } = contextMeter(
@@ -130,12 +115,17 @@ export const SidePanel = React.memo(function SidePanel({
       overflow="hidden"
     >
       {/* Title */}
-      <Box justifyContent="center" marginBottom={1} flexShrink={0}>
-        <Text bold color="magenta">🐉 CODEMON</Text>
+      <Box flexDirection="column" alignItems="center" marginBottom={1} flexShrink={0}>
+        {PANEL_MARK.map((line, i) => (
+          <Text key={i} bold color={i === 1 ? "red" : "gray"}>
+            {line}
+          </Text>
+        ))}
+        <Text bold color="magenta">CODEMON</Text>
       </Box>
 
       {/* Region */}
-      <Row label="📁 region">
+      <Row label={`${GLYPH.section} region`}>
         <Text color="cyan" wrap="truncate">{shortPath(region)}</Text>
       </Row>
 
@@ -144,24 +134,24 @@ export const SidePanel = React.memo(function SidePanel({
       {/* Model — the one section built by hand rather than through Row(), so it
           needs the same flexShrink=0 to keep its three lines from stacking. */}
       <Box flexDirection="column" marginTop={1} marginBottom={1} flexShrink={0}>
-        <Text dimColor>🤖 model</Text>
+        <Text dimColor>{GLYPH.section} model</Text>
         <Box gap={1} flexShrink={0}>
-          <Text>{providerIcon}</Text>
+          <Text color="red">{PROVIDER_GLYPH}</Text>
           <Text color="blue" bold wrap="truncate">{modelPart}</Text>
         </Box>
         {providerPart ? <Text dimColor color="gray">{providerPart}</Text> : null}
       </Box>
 
       {/* Mode */}
-      <Row label="🔒 mode">
+      <Row label={`${GLYPH.section} mode`}>
         <Box gap={1}>
-          <Text>{modeIcon}</Text>
+          <Text color={modeColor}>{modeGlyph}</Text>
           <Text color={modeColor} bold>{permissionMode}</Text>
         </Box>
       </Row>
 
       {/* Context occupancy — what the context manager trims on */}
-      <Row label="🧠 context">
+      <Row label={`${GLYPH.section} context`}>
         <Text color="gray">
           ~{formatTokenCount(contextTokens)} / {formatTokenCount(maxContextTokens)}
         </Text>
@@ -172,30 +162,18 @@ export const SidePanel = React.memo(function SidePanel({
       </Row>
 
       {/* Cumulative spend — a different quantity, so a different line */}
-      <Row label="📊 spent">
+      <Row label={`${GLYPH.section} spent`}>
         <Text color="gray">~{formatTokenCount(spentTokens)} tk</Text>
       </Row>
 
       {/* Status */}
-      <Row label="💡 status">
-        {isThinking && <Text color="yellow">⚡ thinking…</Text>}
-        {!isThinking && resumed && <Text color="cyan">📖 resumed</Text>}
-        {!isThinking && !resumed && <Text color="green">● ready</Text>}
+      <Row label={`${GLYPH.section} status`}>
+        {isThinking && <Text color="yellow">{GLYPH.warn} thinking…</Text>}
+        {!isThinking && resumed && <Text color="cyan">{GLYPH.info} resumed</Text>}
+        {!isThinking && !resumed && <Text color="green">{GLYPH.ok} ready</Text>}
         {sessionId && <Text dimColor color="gray">{sessionId.slice(0, 8)}…</Text>}
       </Row>
 
-      <Text dimColor>{divider}</Text>
-
-      {/* Commands cheatsheet — last, so it is what a short terminal clips */}
-      <Box flexDirection="column" marginTop={1} flexShrink={0}>
-        <Text dimColor>⌨️  commands</Text>
-        {COMMANDS.map((c) => (
-          <Box key={c.name} gap={1}>
-            <Text color="cyan">{c.name}</Text>
-            <Text dimColor>{c.desc}</Text>
-          </Box>
-        ))}
-      </Box>
     </Box>
   );
 });

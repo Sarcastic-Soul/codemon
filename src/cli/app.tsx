@@ -1,9 +1,9 @@
 import React, { useState, useCallback, useEffect, useMemo } from "react";
 import { Box, Text, useInput, useApp } from "ink";
 import TextInput from "ink-text-input";
-import { ChatView } from "./components/ChatView.tsx";
+import { ChatView, maxScrollOffset } from "./components/ChatView.tsx";
 import { ToolCallView, type ToolCallEntry } from "./components/ToolCallView.tsx";
-import { DiffView, type DiffEntry } from "./components/DiffView.tsx";
+import { DiffView, diffViewRows, DIFF_MAX_LINES, type DiffEntry } from "./components/DiffView.tsx";
 import { PermissionPrompt } from "./components/PermissionPrompt.tsx";
 import { SidePanel } from "./components/SidePanel.tsx";
 import { ConnectorModal, type ConnectorResult } from "./components/ConnectorModal.tsx";
@@ -18,7 +18,11 @@ import type { Provider } from "../providers/types.ts";
 import { effectiveContextTokens, type CodemonConfig } from "../config/defaults.ts";
 import { maybeRefreshCatalog } from "../providers/catalog.ts";
 import { SuggestionPopup } from "./components/SuggestionPopup.tsx";
+import { Banner } from "./components/Banner.tsx";
+import { ThinkingIndicator } from "./components/ThinkingIndicator.tsx";
+import { ReasoningView } from "./components/ReasoningView.tsx";
 import { useTerminalSize } from "./hooks/use-terminal-size.ts";
+import { computeLayout, SIDE_PANEL_WIDTH } from "./layout.ts";
 import { buildFileIndex } from "./file-index.ts";
 import {
   detectCompletion,
@@ -26,6 +30,7 @@ import {
   commandSuggestions,
   rankSuggestions,
   expandMentions,
+  SUGGESTION_WINDOW,
 } from "./suggestions.ts";
 
 export interface ChatMessage {
@@ -45,8 +50,12 @@ export interface ChatMessage {
  */
 const STREAM_PAINT_MS = 50;
 
-/** Columns reserved for the side panel. */
-const SIDE_PANEL_WIDTH = 34;
+/**
+ * Messages moved per PgUp/PgDn. `scrollOffset` counts messages, so scaling this
+ * to the terminal height jumped a dozen turns at a time and shot straight past
+ * everything to the top of the history.
+ */
+const SCROLL_STEP_MESSAGES = 3;
 
 /**
  * Reads a tool result for a diff to display. `edit_file` and `write_file` both
@@ -139,11 +148,20 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
   });
 
   const [streamingText, setStreamingText] = useState("");
+  /** The model's scratchpad for the turn in flight; cleared when it ends. */
+  const [reasoningText, setReasoningText] = useState("");
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [input, setInput] = useState("");
   const [isThinking, setIsThinking] = useState(false);
   /** Which completion row is highlighted; reset whenever the query changes. */
   const [suggestionIndex, setSuggestionIndex] = useState(0);
   const [suggestionsDismissed, setSuggestionsDismissed] = useState(false);
+  /**
+   * Messages stepped back from the newest. Pinning the layout to the terminal
+   * height took away the terminal's own scrollback, so the transcript has to
+   * provide it. 0 sticks to the bottom, which is where a new message resets it.
+   */
+  const [scrollOffset, setScrollOffset] = useState(0);
   // Live state for the turn in flight only. Once the turn ends both are folded
   // into the assistant message they belong to, so the record survives the reply.
   const [liveToolCalls, setLiveToolCalls] = useState<ToolCallEntry[]>([]);
@@ -199,10 +217,10 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
       setActiveModel(result.model);
       updateSessionModel(result.model);
       setShowConnectorModal(false);
-      addMessage({ role: "assistant", content: `🔌 Switched active provider to **${result.model}**` });
+      addMessage({ role: "assistant", content: `Switched active provider to **${result.model}**` });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      addMessage({ role: "assistant", content: `❌ Failed to switch provider: ${msg}` });
+      addMessage({ role: "assistant", content: `Failed to switch provider: ${msg}` });
       setShowConnectorModal(false);
     }
   }, [addMessage]);
@@ -246,6 +264,13 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
     setSuggestionsDismissed(false);
   }, []);
 
+  // Ticks only while a turn is in flight, so an idle session queues no timers.
+  useEffect(() => {
+    if (!isThinking) return;
+    const timer = setInterval(() => setElapsedSeconds((n) => n + 1), 1000);
+    return () => clearInterval(timer);
+  }, [isThinking]);
+
   // Freshen the model catalog in the background, at most once a day. Nothing
   // waits on it: a failure just leaves the last known catalog in place.
   useEffect(() => {
@@ -283,21 +308,24 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
         // Unknown slash command — show hint
         addMessage({
           role: "assistant",
-          content: `❓ Unknown command: \`${trimmed.split(" ")[0]}\`. Type **/help** to see all commands.`,
+          content: `Unknown command: \`${trimmed.split(" ")[0]}\`. Type **/help** to see all commands.`,
         });
         return;
       }
 
       if (!activeProvider) {
         setInput("");
-        addMessage({ role: "assistant", content: "❌ No API key configured. Opening Provider & Model Connector..." });
+        addMessage({ role: "assistant", content: "No API key configured. Opening Provider & Model Connector..." });
         setShowConnectorModal(true);
         return;
       }
 
       setInput("");
       setIsThinking(true);
+      setScrollOffset(0);
       setStreamingText("");
+      setReasoningText("");
+      setElapsedSeconds(0);
       setLiveToolCalls([]);
       setLiveDiffs([]);
 
@@ -312,6 +340,8 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
       // re-rendered the whole tree. Painting on a short interval keeps the reply
       // visibly live without spending a frame per character.
       let lastPaint = 0;
+      let reasoningBuffer = "";
+      let lastReasoningPaint = 0;
       // Held locally as well as in state: the state value read inside this loop
       // would be the one captured when the turn started.
       let turnToolCalls: ToolCallEntry[] = [];
@@ -336,6 +366,16 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
             if (now - lastPaint >= STREAM_PAINT_MS) {
               lastPaint = now;
               setStreamingText(assistantBuffer);
+            }
+            break;
+          }
+
+          case "reasoning": {
+            reasoningBuffer += event.text;
+            const now = Date.now();
+            if (now - lastReasoningPaint >= STREAM_PAINT_MS) {
+              lastReasoningPaint = now;
+              setReasoningText(reasoningBuffer);
             }
             break;
           }
@@ -407,7 +447,7 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
             break;
 
           case "error":
-            addMessage({ role: "assistant", content: `❌ Error: ${event.error.message}` });
+            addMessage({ role: "assistant", content: `Error: ${event.error.message}` });
             break;
         }
       }
@@ -415,6 +455,7 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
       const turnMessage = messageForTurn(assistantBuffer, turnToolCalls, turnDiffs);
       if (turnMessage) setMessages((prev) => [...prev, turnMessage]);
       setStreamingText("");
+      setReasoningText("");
       setLiveToolCalls([]);
       setLiveDiffs([]);
       setIsThinking(false);
@@ -425,6 +466,34 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
   useInput((_input, key) => {
     if (key.ctrl && _input === "c") {
       exit();
+      return;
+    }
+
+    // Scrollback. Bound to PgUp/PgDn and ctrl-U/ctrl-D so plain arrows stay with
+    // the completion popup and with ordinary cursor movement in the prompt.
+    //
+    // ink-text-input ignores exactly one chord — ctrl-C — and inserts every
+    // other one as literal text, so ctrl-U scrolled *and* typed a "u". Its
+    // handler subscribes before this one (child effects run first), so by the
+    // time we get here the character is already in `input`; the functional
+    // updater below sees that and takes it back off.
+    const consumeChordChar = (char: string) =>
+      setInput((prev) => (prev.endsWith(char) ? prev.slice(0, -1) : prev));
+
+    const step = SCROLL_STEP_MESSAGES;
+    if (key.pageUp || (key.ctrl && _input === "u")) {
+      if (key.ctrl) consumeChordChar("u");
+      setScrollOffset((prev) => Math.min(prev + step, maxScrollOffset(messages)));
+      return;
+    }
+    if (key.pageDown || (key.ctrl && _input === "d")) {
+      if (key.ctrl) consumeChordChar("d");
+      setScrollOffset((prev) => Math.max(prev - step, 0));
+      return;
+    }
+    if (key.ctrl && _input === "g") {
+      consumeChordChar("g");
+      setScrollOffset(0); // jump back to the live end
       return;
     }
 
@@ -444,14 +513,30 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
   });
 
   const inputHidden = Boolean(pendingPermission) || showConnectorModal;
+  // The banner owns the empty screen; the first message replaces it for good.
+  const showBanner = messages.length === 0 && streamingText === "" && !isThinking;
 
-  // Rows the transcript may use: everything except the prompt, the completion
-  // popup, and a line of breathing room. Without this the column grows past the
-  // last row, the terminal scrolls to follow, and every repaint redraws the
-  // scrolled-off frame — which read as the side panel drifting and as flicker.
-  const chromeRows = (inputHidden ? 0 : 3) + (suggestions.length > 0 ? suggestions.length + 3 : 0);
-  const transcriptRows = Math.max(4, rows - chromeRows - 1);
-  const transcriptWidth = Math.max(20, columns - SIDE_PANEL_WIDTH - 2);
+  const liveDiffRows = liveDiffs.reduce((n, d) => n + diffViewRows(d.unified), 0);
+
+  // All of the screen arithmetic lives in computeLayout(), which is unit-tested
+  // against the invariant that matters: the frame never exceeds the terminal.
+  const { showPanel, paneRows, chatRows, popupVisibleRows, contentWidth } = computeLayout({
+    rows,
+    columns,
+    inputHidden,
+    suggestionCount: suggestions.length,
+    isThinking,
+    hasReasoning: reasoningText !== "",
+    toolCallCount: liveToolCalls.length,
+    diffRows: liveDiffRows,
+  });
+
+  // When several files change in one turn, share the remaining rows out rather
+  // than letting the first diff eat the screen.
+  const liveDiffMaxLines =
+    liveDiffs.length > 0
+      ? Math.max(4, Math.min(DIFF_MAX_LINES, Math.floor((rows - 12) / liveDiffs.length) - 4))
+      : DIFF_MAX_LINES;
 
   return (
     <Box flexDirection="row" width={columns} height={rows}>
@@ -461,29 +546,44 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
             instead of stranding it in the middle of the screen. */}
         <Box
           flexDirection="column"
-          flexGrow={1}
+          height={paneRows}
+          flexShrink={0}
           overflow="hidden"
           justifyContent="flex-end"
         >
-          <ChatView
-            messages={messages}
-            streamingText={streamingText}
-            maxRows={transcriptRows}
-            width={transcriptWidth}
-          />
+          {showBanner ? (
+            <Banner model={activeModel} maxRows={chatRows} width={contentWidth} />
+          ) : (
+            <ChatView
+              messages={messages}
+              streamingText={streamingText}
+              maxRows={chatRows}
+              width={contentWidth}
+              scrollOffset={scrollOffset}
+            />
+          )}
 
           {/* The turn in flight. Finished turns render inside the transcript,
               attached to their own message. */}
+          {reasoningText !== "" && (
+            <ReasoningView text={reasoningText} width={contentWidth} />
+          )}
+
           {liveToolCalls.length > 0 && <ToolCallView calls={liveToolCalls} />}
 
+          {/* Diffs land here the moment edit_file returns, so a file rewrite is
+              visible while the turn is still running rather than after it. */}
           {liveDiffs.map((diff, i) => (
             <DiffView
               key={i}
               unified={diff.unified}
               filePath={diff.path}
               fuzzy={diff.fuzzy}
+              maxLines={liveDiffMaxLines}
             />
           ))}
+
+          {isThinking && <ThinkingIndicator elapsedSeconds={elapsedSeconds} />}
 
           {/* Permission prompt */}
           {pendingPermission && (
@@ -506,12 +606,16 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
 
         {/* Input area */}
         {!inputHidden && (
-          <Box flexDirection="column" flexShrink={0}>
-            <SuggestionPopup suggestions={suggestions} selectedIndex={suggestionIndex} />
+          <Box flexDirection="column" flexShrink={0} flexGrow={0}>
+            <SuggestionPopup
+              suggestions={suggestions}
+              selectedIndex={suggestionIndex}
+              maxVisibleRows={popupVisibleRows}
+            />
 
             <Box borderStyle="single" borderColor={isThinking ? "yellow" : "cyan"} paddingX={1}>
               <Text color={isThinking ? "yellow" : "cyan"}>
-                {isThinking ? "⚡ " : "❯ "}
+                {isThinking ? "" : "❯ "}
               </Text>
               <TextInput
                 value={input}
@@ -526,7 +630,8 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
         )}
       </Box>
 
-      {/* Right: Side panel (fixed 34 cols, flush right) */}
+      {/* Right: side panel, dropped entirely when the terminal is too narrow */}
+      {showPanel && (
       <Box width={SIDE_PANEL_WIDTH} flexShrink={0} height={rows}>
         <SidePanel
           model={activeModel}
@@ -540,6 +645,7 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
           sessionId={sessionId}
         />
       </Box>
+      )}
     </Box>
   );
 }

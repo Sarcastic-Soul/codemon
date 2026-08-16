@@ -1,6 +1,7 @@
 import React from "react";
 import { Box, Text } from "ink";
-import Spinner from "ink-spinner";
+import { GLYPH } from "../theme.ts";
+import { PokeballSpinner } from "./PokeballSpinner.tsx";
 
 export type ToolCallStatus = "running" | "success" | "error";
 
@@ -21,7 +22,7 @@ export function ToolCallView({ calls }: ToolCallViewProps) {
   if (calls.length === 0) return null;
 
   return (
-    <Box flexDirection="column" marginY={1}>
+    <Box flexDirection="column" marginY={1} flexShrink={0}>
       {calls.map((call) => (
         <ToolCallItem key={call.id} call={call} />
       ))}
@@ -30,8 +31,8 @@ export function ToolCallView({ calls }: ToolCallViewProps) {
 }
 
 function ToolCallItem({ call }: { call: ToolCallEntry }) {
-  const icon =
-    call.status === "running" ? "⚡" : call.status === "success" ? "✅" : "❌";
+  const icon = call.status === "success" ? GLYPH.ok : GLYPH.fail;
+  const iconColor = call.status === "success" ? "green" : "red";
 
   const argSummary = summarizeArgs(call.toolName, call.args);
 
@@ -39,11 +40,11 @@ function ToolCallItem({ call }: { call: ToolCallEntry }) {
     <Box flexDirection="column" paddingLeft={2} marginBottom={0}>
       <Box gap={1}>
         {call.status === "running" ? (
-          <Text color="yellow">
-            <Spinner type="dots" />
-          </Text>
+          <PokeballSpinner />
         ) : (
-          <Text>{icon}</Text>
+          <Text color={iconColor} bold>
+            {icon}
+          </Text>
         )}
         <Text color="yellow" bold>
           {toolLabel(call.toolName)}
@@ -52,13 +53,13 @@ function ToolCallItem({ call }: { call: ToolCallEntry }) {
       </Box>
       {call.status === "error" && call.error && (
         <Box paddingLeft={4}>
-          <Text color="red">↳ {call.error}</Text>
+          <Text color="red">{GLYPH.branch} {call.error}</Text>
         </Box>
       )}
       {call.status === "success" && call.result != null && (
         <Box paddingLeft={4}>
           <Text color="green" dimColor>
-            ↳ {resultSummary(call.toolName, call.result as Record<string, unknown>)}
+            {GLYPH.branch} {resultSummary(call.toolName, call.result as Record<string, unknown>)}
           </Text>
         </Box>
       )}

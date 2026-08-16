@@ -6,6 +6,6 @@ export const clearCommand = {
   hint: "clear chat",
   execute(ctx: CommandContext): void {
     ctx.setMessages([]);
-    ctx.addMessage({ role: "assistant", content: "🧹 Chat cleared. Session history in the database is preserved." });
+    ctx.addMessage({ role: "assistant", content: "Chat cleared. Session history in the database is preserved." });
   },
 };

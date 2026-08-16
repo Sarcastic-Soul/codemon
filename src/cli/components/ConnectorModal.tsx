@@ -206,7 +206,7 @@ export function ConnectorModal({ onClose, onSelectProviderModel }: ConnectorModa
     <Box flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={1} marginY={1}>
       <Box marginBottom={1}>
         <Text bold color="cyan">
-          🔌 CODEMON PROVIDER & MODEL CONNECTOR
+          CODEMON PROVIDER & MODEL CONNECTOR
         </Text>
       </Box>
 
@@ -226,7 +226,7 @@ export function ConnectorModal({ onClose, onSelectProviderModel }: ConnectorModa
           </Box>
 
           <Box borderStyle="single" borderColor="gray" paddingX={1} marginBottom={1}>
-            <Text dimColor>🔎 </Text>
+            <Text dimColor></Text>
             <TextInput
               value={providerFilter}
               onChange={(value) => {
@@ -296,7 +296,7 @@ export function ConnectorModal({ onClose, onSelectProviderModel }: ConnectorModa
           </Box>
 
           <Box borderStyle="single" borderColor="gray" paddingX={1} marginBottom={1}>
-            <Text dimColor>🔎 </Text>
+            <Text dimColor></Text>
             <TextInput
               value={modelFilter}
               onChange={(value) => {
