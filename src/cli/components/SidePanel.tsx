@@ -78,14 +78,23 @@ function shortPath(p: string, max = 26): string {
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <Box flexDirection="column" marginBottom={1}>
+    // flexShrink=0 because Yoga's default is to compress children that overflow
+    // a fixed-height parent, which drew two lines on top of each other
+    // ("● readyus") on a short terminal. Clipped from the bottom is legible;
+    // squashed is not — and the sections are already ordered least-important-last.
+    <Box flexDirection="column" marginBottom={1} flexShrink={0}>
       <Text dimColor>{label}</Text>
       {children}
     </Box>
   );
 }
 
-export function SidePanel({
+/**
+ * Memoized on its props: none of them change while a message is being typed, so
+ * without this every keystroke re-rendered the whole panel — a third of the
+ * screen redrawn per character, which is what made fast typing flicker.
+ */
+export const SidePanel = React.memo(function SidePanel({
   model,
   region,
   permissionMode,
@@ -118,9 +127,10 @@ export function SidePanel({
       borderColor="gray"
       paddingX={1}
       height="100%"
+      overflow="hidden"
     >
       {/* Title */}
-      <Box justifyContent="center" marginBottom={1}>
+      <Box justifyContent="center" marginBottom={1} flexShrink={0}>
         <Text bold color="magenta">🐉 CODEMON</Text>
       </Box>
 
@@ -131,10 +141,11 @@ export function SidePanel({
 
       <Text dimColor>{divider}</Text>
 
-      {/* Model */}
-      <Box flexDirection="column" marginTop={1} marginBottom={1}>
+      {/* Model — the one section built by hand rather than through Row(), so it
+          needs the same flexShrink=0 to keep its three lines from stacking. */}
+      <Box flexDirection="column" marginTop={1} marginBottom={1} flexShrink={0}>
         <Text dimColor>🤖 model</Text>
-        <Box gap={1}>
+        <Box gap={1} flexShrink={0}>
           <Text>{providerIcon}</Text>
           <Text color="blue" bold wrap="truncate">{modelPart}</Text>
         </Box>
@@ -175,8 +186,8 @@ export function SidePanel({
 
       <Text dimColor>{divider}</Text>
 
-      {/* Commands cheatsheet */}
-      <Box flexDirection="column" marginTop={1}>
+      {/* Commands cheatsheet — last, so it is what a short terminal clips */}
+      <Box flexDirection="column" marginTop={1} flexShrink={0}>
         <Text dimColor>⌨️  commands</Text>
         {COMMANDS.map((c) => (
           <Box key={c.name} gap={1}>
@@ -187,4 +198,4 @@ export function SidePanel({
       </Box>
     </Box>
   );
-}
+});

@@ -17,6 +17,16 @@ import { dispatchCommand } from "./commands/index.ts";
 import type { Provider } from "../providers/types.ts";
 import { effectiveContextTokens, type CodemonConfig } from "../config/defaults.ts";
 import { maybeRefreshCatalog } from "../providers/catalog.ts";
+import { SuggestionPopup } from "./components/SuggestionPopup.tsx";
+import { useTerminalSize } from "./hooks/use-terminal-size.ts";
+import { buildFileIndex } from "./file-index.ts";
+import {
+  detectCompletion,
+  applyCompletion,
+  commandSuggestions,
+  rankSuggestions,
+  expandMentions,
+} from "./suggestions.ts";
 
 export interface ChatMessage {
   role: "user" | "assistant";
@@ -27,6 +37,16 @@ export interface ChatMessage {
   /** File edits from the same turn. */
   diffs?: DiffEntry[];
 }
+
+/**
+ * Shortest gap between repaints while a reply streams. Around 20 fps: fast
+ * enough to read as live typing, slow enough that a burst of tokens does not
+ * queue a full re-render per character.
+ */
+const STREAM_PAINT_MS = 50;
+
+/** Columns reserved for the side panel. */
+const SIDE_PANEL_WIDTH = 34;
 
 /**
  * Reads a tool result for a diff to display. `edit_file` and `write_file` both
@@ -84,6 +104,7 @@ interface AppProps {
 
 export function App({ provider, config, projectRoot, resumed = false, initialShowConnector = false }: AppProps) {
   const { exit } = useApp();
+  const { columns, rows } = useTerminalSize();
   const [activeProvider, setActiveProvider] = useState<Provider | undefined>(provider);
   const [activeModel, setActiveModel] = useState<string>(config.model);
   const [showConnectorModal, setShowConnectorModal] = useState(initialShowConnector || !provider);
@@ -120,6 +141,9 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
   const [streamingText, setStreamingText] = useState("");
   const [input, setInput] = useState("");
   const [isThinking, setIsThinking] = useState(false);
+  /** Which completion row is highlighted; reset whenever the query changes. */
+  const [suggestionIndex, setSuggestionIndex] = useState(0);
+  const [suggestionsDismissed, setSuggestionsDismissed] = useState(false);
   // Live state for the turn in flight only. Once the turn ends both are folded
   // into the assistant message they belong to, so the record survives the reply.
   const [liveToolCalls, setLiveToolCalls] = useState<ToolCallEntry[]>([]);
@@ -190,6 +214,38 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
     [config, activeModel],
   );
 
+  // ─── Completion ───────────────────────────────────────────────────────────
+  const completion = useMemo(
+    () => (suggestionsDismissed ? null : detectCompletion(input)),
+    [input, suggestionsDismissed],
+  );
+
+  const suggestions = useMemo(() => {
+    if (!completion || isThinking) return [];
+    const pool =
+      completion.kind === "command" ? commandSuggestions() : buildFileIndex(projectRoot);
+    return rankSuggestions(pool, completion.term);
+  }, [completion, isThinking, projectRoot]);
+
+  // A changed query invalidates the highlight — otherwise row 4 of the old list
+  // stays selected over a new list that may only have two rows.
+  useEffect(() => {
+    setSuggestionIndex(0);
+  }, [completion?.kind, completion?.term]);
+
+  const acceptSuggestion = useCallback(() => {
+    if (!completion || suggestions.length === 0) return false;
+    const chosen = suggestions[Math.min(suggestionIndex, suggestions.length - 1)]!;
+    setInput(applyCompletion(input, completion, chosen));
+    return true;
+  }, [completion, suggestions, suggestionIndex, input]);
+
+  const handleInputChange = useCallback((value: string) => {
+    setInput(value);
+    // Typing again after Esc should bring the list back.
+    setSuggestionsDismissed(false);
+  }, []);
+
   // Freshen the model catalog in the background, at most once a day. Nothing
   // waits on it: a failure just leaves the last known catalog in place.
   useEffect(() => {
@@ -212,6 +268,10 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
 
   const handleSubmit = useCallback(
     async (userText: string) => {
+      // Enter belongs to the popup while it is open — completing a path should
+      // not also fire the message off half-written.
+      if (acceptSuggestion()) return;
+
       const trimmed = userText.trim();
       if (!trimmed || isThinking) return;
 
@@ -241,10 +301,17 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
       setLiveToolCalls([]);
       setLiveDiffs([]);
 
+      // The transcript keeps the `@path` the user typed; the model gets the
+      // path as a plain backticked reference it can hand to the file tools.
+      const promptText = expandMentions(userText);
       const userMsg: ChatMessage = { role: "user", content: userText };
       setMessages((prev) => [...prev, userMsg]);
 
       let assistantBuffer = "";
+      // Repainting on every token is what made fast streams flicker: each delta
+      // re-rendered the whole tree. Painting on a short interval keeps the reply
+      // visibly live without spending a frame per character.
+      let lastPaint = 0;
       // Held locally as well as in state: the state value read inside this loop
       // would be the one captured when the turn started.
       let turnToolCalls: ToolCallEntry[] = [];
@@ -255,7 +322,7 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
       };
 
       const engine = runAgent(
-        userText,
+        promptText,
         activeProvider,
         { ...config, model: activeModel, maxContextTokens: contextBudget },
         systemPrompt,
@@ -263,10 +330,15 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
 
       for await (const event of engine) {
         switch (event.type) {
-          case "text":
+          case "text": {
             assistantBuffer += event.text;
-            setStreamingText(assistantBuffer);
+            const now = Date.now();
+            if (now - lastPaint >= STREAM_PAINT_MS) {
+              lastPaint = now;
+              setStreamingText(assistantBuffer);
+            }
             break;
+          }
 
           case "tool-start":
             putToolCalls([
@@ -347,20 +419,58 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
       setLiveDiffs([]);
       setIsThinking(false);
     },
-    [isThinking, activeProvider, activeModel, config, contextBudget, systemPrompt, commandContext, addMessage],
+    [isThinking, activeProvider, activeModel, config, contextBudget, systemPrompt, commandContext, addMessage, acceptSuggestion],
   );
 
   useInput((_input, key) => {
-    if (key.ctrl && _input === "c") exit();
+    if (key.ctrl && _input === "c") {
+      exit();
+      return;
+    }
+
+    if (suggestions.length === 0) return;
+
+    // Arrows and Tab drive the popup. TextInput leaves both alone, so this can
+    // sit alongside it without stealing ordinary typing.
+    if (key.upArrow) {
+      setSuggestionIndex((prev) => (prev > 0 ? prev - 1 : suggestions.length - 1));
+    } else if (key.downArrow) {
+      setSuggestionIndex((prev) => (prev < suggestions.length - 1 ? prev + 1 : 0));
+    } else if (key.tab) {
+      acceptSuggestion();
+    } else if (key.escape) {
+      setSuggestionsDismissed(true);
+    }
   });
 
+  const inputHidden = Boolean(pendingPermission) || showConnectorModal;
+
+  // Rows the transcript may use: everything except the prompt, the completion
+  // popup, and a line of breathing room. Without this the column grows past the
+  // last row, the terminal scrolls to follow, and every repaint redraws the
+  // scrolled-off frame — which read as the side panel drifting and as flicker.
+  const chromeRows = (inputHidden ? 0 : 3) + (suggestions.length > 0 ? suggestions.length + 3 : 0);
+  const transcriptRows = Math.max(4, rows - chromeRows - 1);
+  const transcriptWidth = Math.max(20, columns - SIDE_PANEL_WIDTH - 2);
+
   return (
-    <Box flexDirection="row" width="100%" height="100%">
-      {/* Left: Chat column (flexGrow=1 fills available space) */}
-      <Box flexDirection="column" flexGrow={1} overflow="hidden" paddingRight={1}>
-        {/* Chat history */}
-        <Box flexDirection="column" flexGrow={1} overflow="hidden">
-          <ChatView messages={messages} streamingText={streamingText} />
+    <Box flexDirection="row" width={columns} height={rows}>
+      {/* Left: chat column, sized to the terminal so the prompt stays pinned */}
+      <Box flexDirection="column" flexGrow={1} height={rows} overflow="hidden" paddingRight={1}>
+        {/* Transcript. Bottom-aligned so a short session sits above the prompt
+            instead of stranding it in the middle of the screen. */}
+        <Box
+          flexDirection="column"
+          flexGrow={1}
+          overflow="hidden"
+          justifyContent="flex-end"
+        >
+          <ChatView
+            messages={messages}
+            streamingText={streamingText}
+            maxRows={transcriptRows}
+            width={transcriptWidth}
+          />
 
           {/* The turn in flight. Finished turns render inside the transcript,
               attached to their own message. */}
@@ -395,23 +505,29 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
         </Box>
 
         {/* Input area */}
-        {!pendingPermission && !showConnectorModal && (
-          <Box borderStyle="single" borderColor={isThinking ? "yellow" : "cyan"} paddingX={1} marginTop={1}>
-            <Text color={isThinking ? "yellow" : "cyan"}>
-              {isThinking ? "⚡ " : "❯ "}
-            </Text>
-            <TextInput
-              value={input}
-              onChange={setInput}
-              onSubmit={handleSubmit}
-              placeholder={isThinking ? "thinking…" : "message Codemon  (/ for commands)"}
-            />
+        {!inputHidden && (
+          <Box flexDirection="column" flexShrink={0}>
+            <SuggestionPopup suggestions={suggestions} selectedIndex={suggestionIndex} />
+
+            <Box borderStyle="single" borderColor={isThinking ? "yellow" : "cyan"} paddingX={1}>
+              <Text color={isThinking ? "yellow" : "cyan"}>
+                {isThinking ? "⚡ " : "❯ "}
+              </Text>
+              <TextInput
+                value={input}
+                onChange={handleInputChange}
+                onSubmit={handleSubmit}
+                placeholder={
+                  isThinking ? "thinking…" : "message Codemon  (/ commands · @ files)"
+                }
+              />
+            </Box>
           </Box>
         )}
       </Box>
 
       {/* Right: Side panel (fixed 34 cols, flush right) */}
-      <Box width={34} flexShrink={0}>
+      <Box width={SIDE_PANEL_WIDTH} flexShrink={0} height={rows}>
         <SidePanel
           model={activeModel}
           region={projectRoot}
