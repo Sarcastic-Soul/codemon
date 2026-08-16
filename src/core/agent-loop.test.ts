@@ -5,14 +5,11 @@ import * as path from "path";
 import { runToCompletion, runAgentWithStore, createInMemoryStore } from "./agent-loop.ts";
 import { ContextManager } from "./context-manager.ts";
 import { AVAILABLE_TOOLS } from "../tools/spawn-subagent.ts";
-import { DEFAULTS, type CodemonConfig } from "../config/defaults.ts";
+import { DEFAULTS, effectiveContextTokens, type CodemonConfig } from "../config/defaults.ts";
 import { setProjectRoot, getProjectRoot } from "../sandbox/path-jail.ts";
 import type { Provider, StreamEvent, ModelMessage } from "../providers/types.ts";
 
-/**
- * A provider that replays a fixed script instead of calling a model: one array
- * of events per turn of the agent loop.
- */
+/** Replays a fixed script instead of calling a model: one array of events per turn. */
 function scriptedProvider(turns: StreamEvent[][]): Provider {
   let turn = 0;
   return {
@@ -77,9 +74,8 @@ describe("tool filter enforcement", () => {
   });
 
   test("a tool call outside the filter is refused instead of executed", async () => {
-    // The filter used to shape only what the model was offered. A sub-agent
-    // that emitted the name anyway got the tool, and each nesting level was
-    // another agent.
+    // Shaping only what the model is offered isn't enough: a sub-agent that
+    // emits the name anyway would still get the tool.
     const result = await run(
       callsTool("spawn_subagent", { task: "recurse" }),
       config({ permissionMode: "yolo" }),
@@ -119,10 +115,8 @@ describe("tool filter enforcement", () => {
 
 describe("headless permission handling", () => {
   test("a confirmation request is denied rather than awaited forever", async () => {
-    // `bash` needs confirmation in safe mode. runToCompletion has no UI to ask
-    // through, and the loop awaits a promise only the prompt's resolve settles
-    // — so this used to hang with no timeout. If it regresses, this test times
-    // out rather than failing.
+    // `bash` needs confirmation in safe mode and runToCompletion has no UI to
+    // ask through. A regression here times the test out rather than failing.
     const result = await run(
       callsTool("bash", { command: "echo hi" }),
       config({ permissionMode: "safe" }),
@@ -206,20 +200,31 @@ describe("context reporting", () => {
   const replies = () => scriptedProvider([[{ type: "text", text: "ok" }, { type: "finish", finishReason: "stop" }]]);
 
   test("each turn reports what the context manager measures", async () => {
-    // The side panel's meter is fed from this number. If it were computed
-    // anywhere else, the bar and the trim would be tracking two quantities —
-    // which is exactly the bug in the meter it replaces.
+    // The side panel's meter is fed from this number; computing it anywhere
+    // else would leave the bar and the trim tracking two quantities.
     const cfg = config({ permissionMode: "yolo" });
     const { events, store } = await contextEvents(replies(), cfg);
 
     expect(events).toHaveLength(1);
 
-    const manager = new ContextManager(cfg.maxContextTokens);
+    // `maxContextTokens: 0` means "size it to the model", so the figure the loop
+    // reports is the resolved budget, not the raw config value.
+    const budget = effectiveContextTokens(cfg);
+    expect(budget).toBeGreaterThan(0);
+
+    const manager = new ContextManager(budget);
     // The store holds the user message the loop added plus the reply; the event
     // was measured before the reply was saved.
     const sent = store.getMessages().filter((m) => m.role === "user");
     expect(events[0]!.estimatedTokens).toBe(manager.getStats(sent, "system").estimatedTokens);
-    expect(events[0]!.maxTokens).toBe(cfg.maxContextTokens);
+    expect(events[0]!.maxTokens).toBe(budget);
+  });
+
+  test("an explicit budget is reported as given, not re-derived", async () => {
+    const cfg = config({ permissionMode: "yolo", maxContextTokens: 42_000 });
+    const { events } = await contextEvents(replies(), cfg);
+
+    expect(events[0]!.maxTokens).toBe(42_000);
   });
 
   test("the reported figure falls when the history is trimmed", async () => {

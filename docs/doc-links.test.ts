@@ -6,11 +6,6 @@ import * as path from "path";
  * The documentation, checked the way a new reader reads it: every local link
  * must land on a file that exists, and no page may name a module that was
  * renamed out of the tree.
- *
- * It lives in `docs/` rather than `src/` because docs are what it tests. The
- * architecture guide had spent a refactor pointing at `src/core/battle-engine.ts`,
- * `src/pokeball/`, `src/moves/` and `src/safari-zone/` — none of which exist —
- * through links hardcoded to one machine's home directory.
  */
 const ROOT = path.resolve(import.meta.dir, "..");
 
@@ -30,10 +25,8 @@ function localLinks(page: string): string[] {
 }
 
 /**
- * Names that were refactored away in commit 050d466, plus the two renamed since.
- * Matched case-insensitively, because the prose form is how one of them survived
- * the first sweep: the README described the architecture guide as covering the
- * "Battle engine" long after `battle-engine.ts` had become `agent-loop.ts`.
+ * Names refactored out of the tree. Matched case-insensitively so the prose
+ * form ("Battle engine") is caught alongside the filename.
  */
 const RETIRED = [
   "battle-engine",

@@ -12,19 +12,42 @@ import {
   getUserConfigPath,
 } from "./user-config.ts";
 
+/**
+ * Every test here writes credentials, and `saveUserConfig` replaces the whole
+ * file — so without CODEMON_CONFIG_DIR pointed somewhere disposable, running the
+ * suite wipes the real ~/.codemon/config.json and the keys stored in it.
+ */
 describe("User Config & API Key Security", () => {
-  const configPath = getUserConfigPath();
-  let originalEnvGemini: string | undefined;
+  let userDir: string;
+  let configPath: string;
+  let savedConfigDir: string | undefined;
+  let savedEnvKeys: Record<string, string | undefined> = {};
+
+  const GOOGLE_ENV = ["GEMINI_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY", "GOOGLE_API_KEY"];
 
   beforeEach(() => {
-    originalEnvGemini = process.env.GEMINI_API_KEY;
+    savedConfigDir = process.env.CODEMON_CONFIG_DIR;
+    userDir = fs.mkdtempSync(path.join(os.tmpdir(), "codemon-userconfig-"));
+    process.env.CODEMON_CONFIG_DIR = userDir;
+    configPath = getUserConfigPath();
+
+    savedEnvKeys = {};
+    for (const name of GOOGLE_ENV) {
+      savedEnvKeys[name] = process.env[name];
+      delete process.env[name];
+    }
   });
 
   afterEach(() => {
-    if (originalEnvGemini !== undefined) {
-      process.env.GEMINI_API_KEY = originalEnvGemini;
-    } else {
-      delete process.env.GEMINI_API_KEY;
+    fs.rmSync(userDir, { recursive: true, force: true });
+
+    if (savedConfigDir === undefined) delete process.env.CODEMON_CONFIG_DIR;
+    else process.env.CODEMON_CONFIG_DIR = savedConfigDir;
+
+    for (const name of GOOGLE_ENV) {
+      const value = savedEnvKeys[name];
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
     }
   });
 

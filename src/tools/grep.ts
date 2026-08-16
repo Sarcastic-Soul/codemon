@@ -27,12 +27,9 @@ const MAX_OUTPUT_CHARS = 15000;
 const SKIP_DIRS = ["node_modules", ".git", "dist"];
 
 /**
- * With line numbers on — which both branches below force — a match prints as
- * `[path:]line:text` and a context line as `[path-]line-text`, with `--`
- * between non-adjacent groups. The delimiter around the line number is what
- * tells the two apart, and whichever shape appears first in the line is the one
- * that came from the delimiter: anything later is content that happens to look
- * like one (`const t = "a:12:b"`).
+ * With line numbers on, a match prints as `[path:]line:text` and a context line
+ * as `[path-]line-text`. Whichever shape appears first is the real delimiter —
+ * anything later is content that happens to look like one (`const t = "a:12:b"`).
  */
 const MATCH_FIELD = /(?:^|:)\d+:/;
 const CONTEXT_FIELD = /(?:^|-)\d+-/;
@@ -45,9 +42,8 @@ function isMatchLine(line: string): boolean {
 }
 
 /**
- * Counts matched lines, not output lines. With context enabled the output is
- * mostly context lines and `--` separators, which used to be counted as matches
- * and overstated the total by roughly the context width.
+ * Counts matched lines, not output lines — with context enabled the output is
+ * mostly context lines and `--` separators.
  */
 function countMatches(stdout: string, contextLines: number): number {
   const lines = stdout.split("\n").filter((l) => l !== "" && l !== "--");
@@ -79,16 +75,13 @@ export const grepTool: ToolDefinition<typeof schema> = {
     const absolute = jailPath(searchPath ?? ".");
     const target = path.relative(getProjectRoot(), absolute) || ".";
 
-    // Built as an argv array and spawned without a shell: `pattern`, `include`
-    // and `target` reach the process verbatim, so metacharacters in them are
-    // ordinary text. `-e` keeps a pattern starting with `-` from being read as
-    // a flag, and `--` does the same for the path.
+    // Spawned without a shell, so metacharacters in the arguments are ordinary
+    // text. `-e` and `--` keep a leading `-` from being read as a flag.
     const argv = (await hasRipgrep())
       ? [
           "rg",
           `--max-count=${MAX_COUNT_PER_FILE}`,
-          // Line numbers are useful to the caller in their own right, and they
-          // are what `countMatches` reads to tell a match from its context. rg
+          // `countMatches` reads these to tell a match from its context, and rg
           // omits them for a single explicit file unless asked.
           "--line-number",
           "-C",
@@ -104,8 +97,7 @@ export const grepTool: ToolDefinition<typeof schema> = {
           "grep",
           "-rn",
           `-m${MAX_COUNT_PER_FILE}`,
-          // ripgrep skips these by default; plain grep needs telling, and the
-          // old `| head -200` pipe is gone to cut the output down after the fact
+          // ripgrep skips these by default; plain grep needs telling.
           ...SKIP_DIRS.map((d) => `--exclude-dir=${d}`),
           "-C",
           String(context_lines),
@@ -119,9 +111,8 @@ export const grepTool: ToolDefinition<typeof schema> = {
 
     const result = await shellExecArgv(argv);
 
-    // Both tools use exit 1 for "no matches" and 2+ for a real failure. The old
-    // pipeline hid that distinction; surface it rather than reporting an error
-    // as an empty result.
+    // Both tools use exit 1 for "no matches" and 2+ for a real failure — don't
+    // report the latter as an empty result.
     if (result.exitCode >= 2 && result.stdout.trim() === "") {
       throw new Error(
         `Search failed (exit ${result.exitCode}): ${result.stderr.trim() || "unknown error"}`,

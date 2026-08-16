@@ -1,9 +1,6 @@
 /**
- * Slash Command Registry & Dispatcher
- *
- * To add a new command:
- *   1. Create src/cli/commands/<name>.ts exporting a command object
- *   2. Import and add it to ALL_COMMANDS below
+ * Slash command registry and dispatcher. To add one, create
+ * src/cli/commands/<name>.ts and add its export to ALL_COMMANDS below.
  */
 
 import type { Dispatch, SetStateAction } from "react";
@@ -31,8 +28,6 @@ export interface SlashCommand {
   execute(ctx: CommandContext): void;
 }
 
-// ─── Import individual command modules ────────────────────────────────────────
-
 import { exitCommand } from "./exit.ts";
 import { connectorCommand } from "./connector.ts";
 import { helpCommand } from "./help.ts";
@@ -54,10 +49,7 @@ for (const cmd of ALL_COMMANDS) {
   }
 }
 
-/**
- * Attempt to dispatch a slash command.
- * Returns true if the input matched a command, false otherwise.
- */
+/** Dispatch a slash command. Returns true if the input matched one. */
 export function dispatchCommand(input: string, ctx: CommandContext): boolean {
   const trimmed = input.trim().toLowerCase();
 

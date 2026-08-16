@@ -1,7 +1,4 @@
-/**
- * Fast token estimation without API calls.
- * ~4 characters per token is a reasonable heuristic for mixed code/prose.
- */
+/** Fast token estimation without API calls — ~4 chars per token for code/prose. */
 const CHARS_PER_TOKEN = 4;
 
 export function estimateTokens(text: string): number {

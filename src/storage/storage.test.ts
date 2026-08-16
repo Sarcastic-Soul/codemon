@@ -26,9 +26,7 @@ import type { ModelMessage } from "../providers/types.ts";
 
 /**
  * The persistence layer, exercised against a real SQLite file rather than a
- * mock — the questions worth asking here (does a structured message survive the
- * JSON round trip, does the cascade fire, does an older database get its new
- * columns) are all questions about SQLite's behaviour, not ours.
+ * mock — round trips, cascades and migrations are SQLite's behaviour, not ours.
  */
 let dir: string;
 let dbPath: string;

@@ -76,7 +76,7 @@ codemon --debug                             # log to ~/.codemon/debug.log
 ```
 
 > **Running from source?** Replace `codemon` with `bun run dev --` —
-> e.g. `bun run dev -- --model google:gemini-2.0-flash-exp`.
+> e.g. `bun run dev -- --model google:gemini-flash-latest`.
 
 ### Slash commands
 
@@ -99,12 +99,25 @@ An unrecognised mode fails closed — everything gets confirmed.
 
 ### Providers
 
+Providers and models come from [models.dev](https://models.dev) — an open catalog of ~185
+providers and ~6,500 models — not from a list baked into the source. The catalog supplies each
+provider's key environment variables, base URL, driving SDK package, and per-model context
+window, pricing, and capability flags. A snapshot ships with the binary so a fresh or offline
+install works immediately; the full catalog refreshes in the background once a day.
+
+Run `/connector` to browse and filter them. A few common ones:
+
 | Provider | Environment variable | Example model |
 |---|---|---|
-| Google | `GEMINI_API_KEY` / `GOOGLE_GENERATIVE_AI_API_KEY` | `google:gemini-2.0-flash-exp` |
-| Anthropic | `ANTHROPIC_API_KEY` | `anthropic:claude-sonnet-4-5` |
-| OpenAI | `OPENAI_API_KEY` | `openai:gpt-4o` |
-| Mistral | `MISTRAL_API_KEY` | `mistral:mistral-large-latest` |
+| Google | `GEMINI_API_KEY` / `GOOGLE_GENERATIVE_AI_API_KEY` | `google:gemini-flash-latest` |
+| Anthropic | `ANTHROPIC_API_KEY` | `anthropic:claude-sonnet-5` |
+| OpenAI | `OPENAI_API_KEY` | `openai:gpt-5.1` |
+| OpenRouter | `OPENROUTER_API_KEY` | `openrouter:anthropic/claude-sonnet-5` |
+| Vercel AI Gateway | `AI_GATEWAY_API_KEY` | `vercel:anthropic/claude-sonnet-5` |
+
+Anything the catalog knows about works without a code change. Local runtimes (Ollama, vLLM, LM
+Studio) are declared under `providers` in `~/.codemon/config.json` — see
+[docs/cli-commands.md](docs/cli-commands.md#local-and-private-providers).
 
 ### Configuration precedence
 

@@ -7,8 +7,7 @@ import { setDefaultModel, setApiKey } from "./user-config.ts";
 
 /**
  * Every tier of the precedence chain is a file, so each test gets a throwaway
- * home (via CODEMON_CONFIG_DIR) and a throwaway project root. Nothing here
- * touches the real ~/.codemon.
+ * home (via CODEMON_CONFIG_DIR) and project root, never the real ~/.codemon.
  */
 let userDir: string;
 let projectRoot: string;

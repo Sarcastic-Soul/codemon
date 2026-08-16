@@ -2,8 +2,8 @@ import * as fs from "fs";
 import * as path from "path";
 
 /**
- * Path Jail — prevents file operations from escaping the project root.
- * All file-access moves must validate paths through this module.
+ * Path Jail — prevents file operations from escaping the project root. All
+ * file-access moves must validate paths through this module.
  */
 
 let projectRoot: string = path.resolve(process.cwd());
@@ -19,12 +19,8 @@ export function getProjectRoot(): string {
 }
 
 /**
- * `fs.realpathSync` for a path that may not exist yet.
- *
- * Resolves the deepest ancestor that does exist and re-attaches the rest, so a
- * file about to be created is still judged against the real location of the
- * directory it would land in. Falls back to the input when nothing on the path
- * exists at all.
+ * `fs.realpathSync` for a path that may not exist yet: resolves the deepest
+ * existing ancestor and re-attaches the rest.
  */
 function resolveThroughSymlinks(target: string): string {
   const trailing: string[] = [];
@@ -48,13 +44,8 @@ function isWithin(child: string, parent: string): boolean {
 }
 
 /**
- * Resolves a path and asserts it is within the project root.
- * Throws if the resolved path escapes the jail.
- *
- * Comparison happens on symlink-resolved paths: a link inside the project that
- * points outside it resolves to an in-root string and would otherwise pass. The
- * value returned is the plain resolved path, since that is what callers pass to
- * `fs` and it reaches the same file.
+ * Resolves a path and throws if it escapes the jail. Compared on symlink-resolved
+ * paths, since a link inside the project can point outside it.
  */
 export function jailPath(filePath: string): string {
   const resolved = path.resolve(projectRoot, filePath);
@@ -70,9 +61,7 @@ export function jailPath(filePath: string): string {
   return resolved;
 }
 
-/**
- * Returns true if the path is within the jail (non-throwing variant).
- */
+/** Returns true if the path is within the jail (non-throwing variant). */
 export function isInsideJail(filePath: string): boolean {
   try {
     jailPath(filePath);

@@ -33,10 +33,8 @@ interface SessionRow {
 }
 
 /**
- * Message count comes from a join rather than the row, so the picker can show
- * it — and so a session that never got a message can be left out of the
- * listings. Sessions are created lazily now, but databases from before that
- * still hold a row per launch.
+ * Message count comes from a join rather than the row, so the picker can show it
+ * and drop empty sessions left behind by older databases.
  */
 const SESSION_SELECT = `
   SELECT s.id, s.region, s.model, s.started_at, s.last_active,
@@ -62,11 +60,8 @@ function toStoredSession(r: SessionRow): StoredSession {
 // ─── Sessions ─────────────────────────────────────────────────────────────────
 
 /**
- * `OR IGNORE`, not `OR REPLACE`. The row is written lazily now, so this runs
- * once a session already has content — and REPLACE deletes the conflicting row
- * before inserting, which with `ON DELETE CASCADE` would take the session's
- * messages and checkpoints with it and reset its token total. Ids are UUIDs, so
- * a conflict means the session is already stored and should be left alone.
+ * `OR IGNORE`, not `OR REPLACE`: REPLACE deletes the conflicting row first,
+ * which under `ON DELETE CASCADE` would take its messages and checkpoints too.
  */
 export function dbCreateSession(id: string, region: string, model: string): void {
   const now = new Date().toISOString();

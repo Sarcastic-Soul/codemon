@@ -5,9 +5,7 @@ import { shellExecArgv } from "../sandbox/shell-executor.ts";
 const SKIP_DIRS = new Set(["node_modules", ".git", "dist", ".next", "build", "__pycache__", ".cache", "coverage"]);
 const MAX_TREE_FILES = 150;
 
-/**
- * Build a compact ASCII tree of the project, skipping common noise directories.
- */
+/** Build a compact ASCII tree of the project, skipping noise directories. */
 function buildFileTree(dir: string, depth = 0, maxDepth = 4, count = { n: 0 }): string {
   if (depth > maxDepth || count.n >= MAX_TREE_FILES) return "";
   const indent = "  ".repeat(depth);
@@ -54,15 +52,10 @@ function buildFileTree(dir: string, depth = 0, maxDepth = 4, count = { n: 0 }): 
 const MAX_WALK_FILES = 20_000;
 
 /**
- * Get recently modified files via git (falls back to mtime if no git repo).
- *
- * Both the git call and the walk stay out of the shell: `projectRoot` comes
- * from `--region` or the cwd, and a path holding an apostrophe used to end the
- * quoted string it was spliced into and break the command.
+ * Recently modified files via git, falling back to mtime if no git repo. Both
+ * paths stay out of the shell so a `projectRoot` with quotes in it still works.
  */
 async function getRecentlyModified(projectRoot: string, n = 10): Promise<string[]> {
-  // Try git. The `| grep -v '^$' | head` filtering the command string used to
-  // do is a couple of array operations here.
   const gitResult = await shellExecArgv(
     ["git", "-C", projectRoot, "log", "--name-only", "--pretty=format:", `-${n * 2}`],
     5000,
@@ -76,12 +69,8 @@ async function getRecentlyModified(projectRoot: string, n = 10): Promise<string[
 }
 
 /**
- * Newest files by mtime, for a directory that is not a git repository.
- *
- * Walks by hand rather than globbing so that `node_modules` and friends are
- * pruned instead of enumerated and then discarded — on a project with installed
- * dependencies that is the difference between reading a few hundred entries and
- * a few hundred thousand.
+ * Newest files by mtime, for a directory that is not a git repository. Walks by
+ * hand rather than globbing so `node_modules` is pruned, not enumerated.
  */
 function mostRecentlyModified(projectRoot: string, n: number): string[] {
   const found: Array<{ file: string; mtimeMs: number }> = [];
@@ -123,9 +112,7 @@ function mostRecentlyModified(projectRoot: string, n: number): string[] {
     .map((entry) => entry.file);
 }
 
-/**
- * Get git status summary.
- */
+/** Get git status summary. */
 async function getGitStatus(projectRoot: string): Promise<string> {
   const result = await shellExecArgv(["git", "-C", projectRoot, "status", "--short"], 5000);
   if (result.exitCode === 0 && result.stdout.trim()) {
@@ -134,9 +121,7 @@ async function getGitStatus(projectRoot: string): Promise<string> {
   return "";
 }
 
-/**
- * Detect tech stack from package.json / pyproject.toml / go.mod etc.
- */
+/** Detect tech stack from package.json / pyproject.toml / go.mod etc. */
 function detectStack(projectRoot: string): string[] {
   const markers: string[] = [];
   const check = (file: string, label: string) => {
@@ -169,9 +154,7 @@ export interface RepoIndex {
   gitStatus: string;
 }
 
-/**
- * Build the full project index to inject into the system prompt.
- */
+/** Build the full project index to inject into the system prompt. */
 export async function buildRepoIndex(projectRoot: string): Promise<RepoIndex> {
   const projectName = path.basename(projectRoot);
   const stack = detectStack(projectRoot);
@@ -183,9 +166,7 @@ export async function buildRepoIndex(projectRoot: string): Promise<RepoIndex> {
   return { projectName, stack, fileTree, recentFiles, gitStatus };
 }
 
-/**
- * Format the repo index as a system-prompt section.
- */
+/** Format the repo index as a system-prompt section. */
 export function formatRepoIndex(index: RepoIndex): string {
   const parts: string[] = [
     `## Project: ${index.projectName}`,

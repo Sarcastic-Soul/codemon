@@ -17,13 +17,8 @@ export interface RuleSet {
 }
 
 /**
- * Defines which permission levels are auto-allowed, auto-denied, or need confirmation
- * for each permission mode.
- *
- * The `default` branch is unreachable through the type system, but modes also
- * arrive from config files and CLI flags that TypeScript never sees. It fails
- * closed — nothing is auto-allowed — rather than returning `undefined` and
- * taking the gate down with it.
+ * Which permission levels each mode auto-allows, auto-denies, or confirms. The
+ * `default` branch fails closed, since modes also arrive from config and flags.
  */
 export function getRuleSet(mode: PermissionMode): RuleSet {
   switch (mode) {

@@ -35,10 +35,7 @@ const MODE_COLORS: Record<string, string> = {
   yolo: "red",
 };
 
-/**
- * Read from the registry the dispatcher uses, so the cheatsheet cannot list a
- * command that no longer exists or miss one that does.
- */
+/** Read from the dispatcher's registry, so the cheatsheet cannot drift. */
 const COMMANDS = ALL_COMMANDS.map((cmd) => ({
   name: cmd.names[0] ?? "/unknown",
   desc: cmd.hint,
@@ -57,12 +54,8 @@ export interface ContextMeter {
 }
 
 /**
- * The meter is context occupancy — how full the window the agent loop trims is.
- *
- * It used to be filled from cumulative completion tokens against a hardcoded
- * 100k, which is a different quantity entirely: the bar crept toward full
- * during a long session that was nowhere near its context limit, and never
- * moved when the history was actually trimmed.
+ * Context occupancy — how full the window the agent loop trims is, rather than
+ * cumulative spend, so the bar moves when the history is actually trimmed.
  */
 export function contextMeter(
   contextTokens: number,

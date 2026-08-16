@@ -29,10 +29,7 @@ export const toolRegistry = new Map<string, ToolDefinition>(
   tools.map((t) => [t.name, t]),
 );
 
-/**
- * Converts the tool registry into Vercel AI SDK v7-compatible tool definitions.
- * AI SDK v7 uses `inputSchema` (not `parameters`).
- */
+/** Converts the tool registry into AI SDK v7 tool definitions. */
 export function buildToolSet(): ToolSet {
   const toolSet: ToolSet = {};
   for (const t of tools) {

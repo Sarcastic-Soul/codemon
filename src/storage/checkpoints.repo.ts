@@ -11,8 +11,8 @@ export interface StoredCheckpoint {
 }
 
 /**
- * Save the original content of a file before it is modified.
- * Only saves the FIRST checkpoint per file per session (preserves "original" state).
+ * Save a file's content before it is modified. Only the first checkpoint per
+ * file per session is kept, so the stored copy stays the original.
  */
 export function dbSaveCheckpoint(
   sessionId: string,
@@ -20,7 +20,6 @@ export function dbSaveCheckpoint(
   originalContent: string,
   toolName: string,
 ): void {
-  // Don't overwrite — only keep the first (original) checkpoint per file per session
   const existing = getDb()
     .query(`SELECT id FROM checkpoints WHERE session_id = ? AND file_path = ? LIMIT 1`)
     .get(sessionId, filePath);
@@ -35,11 +34,8 @@ export function dbSaveCheckpoint(
 }
 
 export function dbGetCheckpoints(sessionId: string): StoredCheckpoint[] {
-  // SQLite hands back the column names as written — `file_path`, not `filePath`.
-  // Casting the rows straight to StoredCheckpoint made every field on this
-  // interface `undefined`, which is how `--rewind` came to restore nothing:
-  // `writeFileSync(undefined, undefined)` throws, and each file was reported as
-  // a failure with no name.
+  // SQLite hands back column names as written — `file_path`, not `filePath` —
+  // so the rows are mapped rather than cast to StoredCheckpoint.
   const rows = getDb()
     .query(
       `SELECT id, session_id, file_path, original_content, tool_name, created_at
@@ -64,10 +60,7 @@ export function dbGetCheckpoints(sessionId: string): StoredCheckpoint[] {
   }));
 }
 
-/**
- * Restore all files from checkpoints of the given session.
- * Returns a list of { filePath, success, error } for each file restored.
- */
+/** Restore all files checkpointed by a session, one result per file. */
 export function dbRestoreCheckpoints(
   sessionId: string,
 ): Array<{ filePath: string; success: boolean; error?: string }> {

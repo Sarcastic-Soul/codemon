@@ -8,10 +8,9 @@ import { shellExecArgv } from "../sandbox/shell-executor.ts";
 import { setProjectRoot, getProjectRoot } from "../sandbox/path-jail.ts";
 
 /**
- * `grep` and `glob` take model-supplied arguments and used to splice them into
- * a `bash -c` string, at permission level "read" — the level every mode
- * auto-allows. These tests pin down that the arguments can no longer reach a
- * shell, and that both tools stay inside the path jail.
+ * `grep` and `glob` take model-supplied arguments at permission level "read",
+ * which every mode auto-allows. These pin down that the arguments never reach a
+ * shell and that both tools stay inside the path jail.
  */
 
 interface GrepResult {

@@ -12,9 +12,8 @@ export interface StoredDecision {
 }
 
 /**
- * Tool arguments can be enormous — `write_file` carries an entire file body.
- * The audit trail wants enough to identify the call, not a second copy of the
- * repository.
+ * Tool arguments can be enormous — `write_file` carries a whole file body. The
+ * audit trail wants enough to identify the call, not a copy of the repository.
  */
 const MAX_ARGS_CHARS = 2000;
 

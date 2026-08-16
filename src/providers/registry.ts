@@ -1,115 +1,108 @@
 /**
- * Unified BYOK Provider Registry
- *
- * Uses Vercel AI SDK's `createProviderRegistry` so any model can be addressed
- * with the format  `provider:model-name`  (e.g. `google:gemini-2.0-flash-exp`).
- *
- * Each provider reads its API key from the standard environment variable:
- *   google    → GEMINI_API_KEY  or  GOOGLE_GENERATIVE_AI_API_KEY
- *   anthropic → ANTHROPIC_API_KEY
- *   openai    → OPENAI_API_KEY
- *   mistral   → MISTRAL_API_KEY
- *
- * To add more providers, install `@ai-sdk/<name>` and register below.
+ * Unified BYOK provider registry. Any model is addressed as `provider:model-name`,
+ * with the providers, env vars and SDK packages all coming from `catalog.ts`
+ * rather than a list here. Key precedence: `customKeys`, the catalog's env vars,
+ * then `~/.codemon/config.json`.
  */
 import { createProviderRegistry, streamText } from "ai";
-import { createGoogleGenerativeAI } from "@ai-sdk/google";
-import { createAnthropic } from "@ai-sdk/anthropic";
-import { createOpenAI } from "@ai-sdk/openai";
-import { createMistral } from "@ai-sdk/mistral";
+import type { ProviderV4 } from "@ai-sdk/provider";
 import type { Provider, ProviderConfig, StreamEvent, ModelMessage } from "./types.ts";
 import type { ToolSet } from "ai";
-import { getEffectiveApiKey } from "../config/user-config.ts";
+import { getEffectiveApiKey, getEndpointOverride } from "../config/user-config.ts";
+import { getProviderEnvVars, parseModelString } from "./catalog.ts";
+import { createProviderClient } from "./factories.ts";
+import { resolveProviderEntry } from "./resolve.ts";
 
-// ---------------------------------------------------------------------------
-// Build the registry — each provider reads its key via precedence hierarchy:
-// Env Var -> Stored User Config (~/.codemon/config.json)
-// ---------------------------------------------------------------------------
+// Defined in catalog.ts so the config layer can parse a model string without
+// pulling in the AI SDK packages this module imports; re-exported because this
+// is where callers have always imported it from.
+export { parseModelString };
 
-export function buildProviderRegistry(customKeys?: Record<string, string>) {
-  const getApiKey = (provider: string): string => {
-    if (customKeys?.[provider]) return customKeys[provider];
-    return getEffectiveApiKey(provider) ?? "";
-  };
-
-  return createProviderRegistry({
-    google: createGoogleGenerativeAI({
-      apiKey: getApiKey("google"),
-    }),
-    anthropic: createAnthropic({
-      apiKey: getApiKey("anthropic"),
-    }),
-    openai: createOpenAI({
-      apiKey: getApiKey("openai"),
-    }),
-    mistral: createMistral({
-      apiKey: getApiKey("mistral"),
-    }),
-  });
+function resolveKey(providerName: string, customKeys?: Record<string, string>): string | undefined {
+  return customKeys?.[providerName] ?? getEffectiveApiKey(providerName);
 }
 
-// ---------------------------------------------------------------------------
-// Supported providers and their required env vars (for validation messages)
-// ---------------------------------------------------------------------------
+/** Returns an error string if the provider is unknown or keyless, else null. */
+export function validateApiKey(
+  providerName: string,
+  customKeys?: Record<string, string>,
+): string | null {
+  const norm = providerName.toLowerCase();
 
-export const PROVIDER_ENV_VARS: Record<string, string[]> = {
-  google: ["GEMINI_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY"],
-  anthropic: ["ANTHROPIC_API_KEY"],
-  openai: ["OPENAI_API_KEY"],
-  mistral: ["MISTRAL_API_KEY"],
-};
-
-/**
- * Parse a model string like "google:gemini-2.0-flash-exp" into provider + model.
- * Also accepts legacy slash format "google/gemini-2.0-flash-exp" for compatibility.
- */
-export function parseModelString(modelString: string): { provider: string; model: string } {
-  // Normalize slash to colon
-  const normalized = modelString.replace("/", ":");
-  const colonIdx = normalized.indexOf(":");
-  if (colonIdx === -1) {
-    // No separator — assume google as default provider
-    return { provider: "google", model: normalized };
-  }
-  return {
-    provider: normalized.slice(0, colonIdx),
-    model: normalized.slice(colonIdx + 1),
-  };
-}
-
-/**
- * Validate that an API key is present for a given provider via env var or user config.
- * Returns an error string if missing, or null if OK.
- */
-export function validateApiKey(providerName: string, customKeys?: Record<string, string>): string | null {
-  if (customKeys?.[providerName]) return null;
-  const key = getEffectiveApiKey(providerName);
-  if (!key) {
-    const envVars = PROVIDER_ENV_VARS[providerName] || [];
+  if (!resolveProviderEntry(norm)) {
     return (
-      `❌ No API key found for provider "${providerName}".\n` +
-      `   Set one via /connector in TUI or export ${envVars.map((v) => `$${v}`).join(", ")}`
+      `❌ Unknown provider "${providerName}".\n` +
+      `   Pick one with /connector, or declare it under "providers" in ~/.codemon/config.json`
     );
   }
-  return null;
+
+  if (resolveKey(norm, customKeys)) return null;
+
+  const envVars = getProviderEnvVars(norm);
+  return (
+    `❌ No API key found for provider "${norm}".\n` +
+    `   Set one via /connector in TUI or export ${envVars.map((v) => `$${v}`).join(", ")}`
+  );
 }
 
-// ---------------------------------------------------------------------------
-// Create a Provider instance using the registry
-// ---------------------------------------------------------------------------
+/**
+ * Build a registry over just the named providers, rather than instantiating all
+ * ~185 catalogued ones. The plain-record type is also what lets
+ * `languageModel()` take any `provider:model` string instead of a fixed union.
+ */
+export function buildProviderRegistry(
+  providerNames: string[],
+  customKeys?: Record<string, string>,
+) {
+  const providers: Record<string, ProviderV4> = {};
 
-export function createRegistryProvider(config: ProviderConfig, customKeys?: Record<string, string>): Provider {
-  const registry = buildProviderRegistry(customKeys);
+  for (const name of providerNames) {
+    const norm = name.toLowerCase();
+    const entry = resolveProviderEntry(norm);
+    if (!entry) continue;
+
+    const built = createProviderClient(
+      entry,
+      resolveKey(norm, customKeys) ?? "",
+      getEndpointOverride(norm),
+    );
+    if ("error" in built) continue;
+    providers[norm] = built.provider;
+  }
+
+  return createProviderRegistry<Record<string, ProviderV4>>(providers);
+}
+
+/** Create a Provider instance backed by the registry. */
+export function createRegistryProvider(
+  config: ProviderConfig,
+  customKeys?: Record<string, string>,
+): Provider {
   const { provider: providerName, model: modelId } = parseModelString(config.model);
 
-  // Canonical model string for the registry (always colon-separated)
-  const registryModelId = `${providerName}:${modelId}`;
+  const entry = resolveProviderEntry(providerName);
+  if (!entry) {
+    throw new Error(
+      `Unknown provider "${providerName}". Pick one with /connector, or declare it under ` +
+        `"providers" in ~/.codemon/config.json.`,
+    );
+  }
+
+  const built = createProviderClient(
+    entry,
+    config.apiKey ?? resolveKey(providerName, customKeys) ?? "",
+    getEndpointOverride(providerName),
+  );
+  if ("error" in built) throw new Error(built.error);
+
+  const registry = createProviderRegistry<Record<string, ProviderV4>>({
+    [providerName]: built.provider,
+  });
+  const registryModelId: `${string}:${string}` = `${providerName}:${modelId}`;
 
   return {
     async *streamMessage({ messages, tools, system, maxTokens }) {
-      const model = registry.languageModel(
-        registryModelId as `google:${string}` | `anthropic:${string}` | `openai:${string}` | `mistral:${string}`,
-      );
+      const model = registry.languageModel(registryModelId);
 
       const result = streamText({
         model,

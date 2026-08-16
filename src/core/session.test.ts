@@ -36,9 +36,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  // The current session is module state, and `bun test` shares a process across
-  // files — leaving one live makes the gate attribute other files' decisions to
-  // it instead of to the empty id they expect.
+  // The current session is module state and `bun test` shares a process across
+  // files, so leaving one live leaks it into other files' expectations.
   endSession();
   closeDb();
   fs.rmSync(dir, { recursive: true, force: true });

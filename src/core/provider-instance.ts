@@ -1,7 +1,6 @@
 /**
- * Provider singleton — allows tools to access the current LLM provider
- * without it being threaded through every function call.
- * Set once at startup in index.tsx.
+ * Provider singleton, set once at startup in index.tsx, so tools can reach the
+ * current LLM provider without it being threaded through every call.
  */
 import type { Provider } from "../providers/types.ts";
 import type { CodemonConfig } from "../config/defaults.ts";

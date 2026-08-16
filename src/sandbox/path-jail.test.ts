@@ -54,9 +54,8 @@ describe("Path Jail — symlinks", () => {
     fs.writeFileSync(path.join(root, "src", "inside.ts"), "ok\n");
     fs.writeFileSync(path.join(outside, "secret.txt"), "secret\n");
 
-    // A link inside the project that points out of it. `path.resolve` alone
-    // produces an in-root string for anything under it, so the prefix check
-    // used to pass.
+    // A link inside the project that points out of it — `path.resolve` alone
+    // yields an in-root string, so a prefix check would pass.
     fs.symlinkSync(outside, path.join(root, "escape"), "dir");
     fs.symlinkSync(path.join(outside, "secret.txt"), path.join(root, "secret-link"), "file");
     fs.symlinkSync(path.join(root, "src"), path.join(root, "src-link"), "dir");

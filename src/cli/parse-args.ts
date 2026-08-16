@@ -1,12 +1,7 @@
 /**
  * CLI argument parsing, kept out of index.tsx so it can be exercised without
- * booting the TUI.
- *
- * Every flag is declared here with whether it takes a value. The old parser
- * inferred that instead — a flag with nothing usable after it became `true` —
- * so `codemon --model` handed a boolean to `parseModelString` and threw before
- * anything rendered, and `codemon --region` threw inside `path.resolve`.
- * Declaring the shape turns both into a message and a non-zero exit.
+ * booting the TUI. Every flag declares whether it takes a value, so a missing
+ * one becomes a message and a non-zero exit rather than a boolean downstream.
  */
 import { PERMISSION_MODES, isPermissionMode } from "../permissions/rules.ts";
 import { SANDBOX_MODES, isSandboxMode } from "../config/defaults.ts";
@@ -52,8 +47,7 @@ const SANDBOX_LIST = SANDBOX_MODES.join(" | ");
 
 /**
  * The slash-command block, generated from the registry the TUI dispatches
- * against. Hand-listing them here left `/help`, `/clear` and three aliases out
- * of `--help` entirely, and the two lists had no way to notice they disagreed.
+ * against, so `--help` and the TUI cannot drift apart.
  */
 const SLASH_COMMANDS = ALL_COMMANDS.map(
   (cmd) => `  ${cmd.names.join(", ").padEnd(20)}  ${cmd.description}`,
@@ -67,7 +61,7 @@ Usage: codemon [options]
 Options:
   --region <path>       Project root directory (default: cwd)
   --mode <mode>         Permission mode: ${MODE_LIST} (default: standard)
-  --model <model>       Model: provider:model-name  (e.g. google:gemini-2.0-flash-exp)
+  --model <model>       Model: provider:model-name  (e.g. anthropic:claude-sonnet-5)
   --sandbox <mode>      Sandbox mode: ${SANDBOX_LIST}  (default: subprocess)
   --no-index            Skip repo indexing on startup
   --continue            Resume the most recent session for this region
@@ -93,19 +87,22 @@ TUI Slash Commands (type while in interactive mode):
 ${SLASH_COMMANDS}
   Ctrl+C also exits.
 
-Supported Providers (BYOK):
-  google     GEMINI_API_KEY / GOOGLE_GENERATIVE_AI_API_KEY
-             e.g. google:gemini-2.0-flash-exp | google:gemini-2.5-pro
-  anthropic  ANTHROPIC_API_KEY
-             e.g. anthropic:claude-sonnet-4-5 | anthropic:claude-opus-4-5
-  openai     OPENAI_API_KEY
-             e.g. openai:gpt-4o | openai:o3-mini
-  mistral    MISTRAL_API_KEY
-             e.g. mistral:mistral-large-latest
+Providers (BYOK):
+  ~185 providers come from the models.dev catalog, refreshed in the background.
+  Run /connector in the TUI to browse, filter and store a key for any of them.
+
+  google      GEMINI_API_KEY / GOOGLE_GENERATIVE_AI_API_KEY / GOOGLE_API_KEY
+  anthropic   ANTHROPIC_API_KEY
+  openai      OPENAI_API_KEY
+  openrouter  OPENROUTER_API_KEY   one key, hundreds of models
+  vercel      AI_GATEWAY_API_KEY   Vercel AI Gateway, same idea
+
+  Local runtimes (Ollama, vLLM, LM Studio) go under "providers" in
+  ~/.codemon/config.json — see docs/cli-commands.md.
 
 Examples:
   codemon                                        # Start with default model
-  codemon --model anthropic:claude-sonnet-4-5    # Use Claude
+  codemon --model anthropic:claude-sonnet-5      # Use Claude
   codemon --continue                             # Resume last session
   codemon --rewind                               # Restore files from last session
   codemon --sandbox docker --mode yolo           # Docker sandbox, auto-approve all

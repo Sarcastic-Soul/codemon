@@ -32,9 +32,9 @@ export MISTRAL_API_KEY="your-api-key"
 
 **Solution**: Ensure your model flag uses a valid provider prefix:
 ```bash
-bun run dev -- --model google:gemini-2.0-flash-exp
+bun run dev -- --model google:gemini-flash-latest
 bun run dev -- --model anthropic:claude-sonnet-4-5
-bun run dev -- --model openai:gpt-4o
+bun run dev -- --model openai:gpt-5.1
 bun run dev -- --model mistral:mistral-large-latest
 ```
 

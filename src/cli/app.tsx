@@ -15,7 +15,8 @@ import { buildRepoIndex, formatRepoIndex } from "../core/repo-indexer.ts";
 import { createRegistryProvider, validateApiKey } from "../providers/registry.ts";
 import { dispatchCommand } from "./commands/index.ts";
 import type { Provider } from "../providers/types.ts";
-import type { CodemonConfig } from "../config/defaults.ts";
+import { effectiveContextTokens, type CodemonConfig } from "../config/defaults.ts";
+import { maybeRefreshCatalog } from "../providers/catalog.ts";
 
 export interface ChatMessage {
   role: "user" | "assistant";
@@ -28,11 +29,8 @@ export interface ChatMessage {
 }
 
 /**
- * Reads a tool result for a diff to display.
- *
- * `edit_file` and `write_file` both come back with `{ path, diff }`; `edit_file`
- * adds `strategy` so a block placed by similarity rather than an exact match
- * can be flagged as such.
+ * Reads a tool result for a diff to display. `edit_file` and `write_file` both
+ * return `{ path, diff }`; `edit_file` adds `strategy` to flag a fuzzy match.
  */
 export function diffFromResult(result: unknown): DiffEntry | null {
   if (typeof result !== "object" || result === null) return null;
@@ -49,13 +47,9 @@ export function diffFromResult(result: unknown): DiffEntry | null {
 }
 
 /**
- * Folds a finished turn into the message that goes in the transcript.
- *
- * Tool calls and diffs used to live in floating state beneath the chat, reset
- * at the top of every submit — so the record of what the agent just did
- * disappeared the moment you replied to it. Attaching them to the message keeps
- * them for as long as the message is on screen. A turn that ran tools without
- * saying anything still gets a message, or its record would go with the reset.
+ * Folds a finished turn into the message that goes in the transcript. Attaching
+ * tool calls and diffs to the message keeps them on screen past the next submit,
+ * so a turn that ran tools without saying anything still gets a message.
  */
 export function messageForTurn(
   text: string,
@@ -146,7 +140,7 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
   // session shows its real load before the first turn reports one.
   const [contextTokens, setContextTokens] = useState(() => {
     try {
-      const manager = new ContextManager(config.maxContextTokens);
+      const manager = new ContextManager(effectiveContextTokens(config));
       return manager.getStats(getMessages(), buildBaseSystemPrompt(config, projectRoot))
         .estimatedTokens;
     } catch {
@@ -188,6 +182,19 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
       setShowConnectorModal(false);
     }
   }, [addMessage]);
+
+  // The history budget follows whichever model is live, so switching to a
+  // narrower one through /connector re-sizes the meter and the trim together.
+  const contextBudget = useMemo(
+    () => effectiveContextTokens(config, activeModel),
+    [config, activeModel],
+  );
+
+  // Freshen the model catalog in the background, at most once a day. Nothing
+  // waits on it: a failure just leaves the last known catalog in place.
+  useEffect(() => {
+    maybeRefreshCatalog().catch(() => {});
+  }, []);
 
   // Build repo index asynchronously if enabled
   useEffect(() => {
@@ -247,7 +254,12 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
         setLiveToolCalls(next);
       };
 
-      const engine = runAgent(userText, activeProvider, { ...config, model: activeModel }, systemPrompt);
+      const engine = runAgent(
+        userText,
+        activeProvider,
+        { ...config, model: activeModel, maxContextTokens: contextBudget },
+        systemPrompt,
+      );
 
       for await (const event of engine) {
         switch (event.type) {
@@ -335,7 +347,7 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
       setLiveDiffs([]);
       setIsThinking(false);
     },
-    [isThinking, activeProvider, activeModel, config, systemPrompt, commandContext, addMessage],
+    [isThinking, activeProvider, activeModel, config, contextBudget, systemPrompt, commandContext, addMessage],
   );
 
   useInput((_input, key) => {
@@ -405,7 +417,7 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
           region={projectRoot}
           permissionMode={config.permissionMode}
           contextTokens={contextTokens}
-          maxContextTokens={config.maxContextTokens}
+          maxContextTokens={contextBudget}
           spentTokens={spentTokens}
           isThinking={isThinking}
           resumed={resumed}

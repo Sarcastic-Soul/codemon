@@ -1,7 +1,8 @@
 import * as fs from "fs";
 import * as path from "path";
 import { logger } from "../utils/logger.ts";
-import { getUserConfigDir } from "./user-config.ts";
+import { getUserConfigDir } from "./paths.ts";
+import { resolveContextWindow } from "../providers/catalog.ts";
 
 export const SANDBOX_MODES = ["subprocess", "docker"] as const;
 
@@ -12,20 +13,19 @@ export function isSandboxMode(value: unknown): value is SandboxMode {
 }
 
 export interface CodemonConfig {
-  /**
-   * Model string in `provider:model-name` format.
-   * Examples: "google:gemini-2.0-flash-exp", "anthropic:claude-sonnet-4-5", "openai:gpt-4o"
-   * Slash format also accepted: "google/gemini-2.0-flash-exp"
-   */
+  /** Model string in `provider:model-name` form, e.g. "openai:gpt-4o". Slash
+   *  format is also accepted. */
   model: string;
   permissionMode: "safe" | "standard" | "yolo";
   maxTokens: number;
-  maxContextTokens: number;
   /**
-   * How many tool-calling turns one user message may take before the loop
-   * stops on its own. Without a ceiling, a model stuck in a retry spiral runs
-   * until the process is killed, burning tokens the whole way.
+   * History budget in tokens, or `0` for "size it to whatever model is in use".
+   * Read through `effectiveContextTokens()` rather than directly — a set value
+   * is a deliberate override and has to survive a mid-session model switch.
    */
+  maxContextTokens: number;
+  /** How many tool-calling turns one user message may take before the loop
+   *  stops on its own, so a retry spiral can't burn tokens indefinitely. */
   maxTurns: number;
   timeout: number;
   debug: boolean;
@@ -37,10 +37,10 @@ export interface CodemonConfig {
 }
 
 export const DEFAULTS: CodemonConfig = {
-  model: "google:gemini-2.0-flash-exp",
+  model: "google:gemini-flash-latest",
   permissionMode: "standard",
   maxTokens: 8192,
-  maxContextTokens: 100000,
+  maxContextTokens: 0, // auto — see effectiveContextTokens()
   maxTurns: 25,
   timeout: 30000,
   debug: false,
@@ -50,18 +50,14 @@ export const DEFAULTS: CodemonConfig = {
 };
 
 /**
- * Keys a config file is allowed to set. Anything else in the file is ignored —
- * `~/.codemon/config.json` also holds `apiKeys`, and this object is handed to
- * sub-agents and the eval runner, so credentials must not ride along inside it.
+ * Keys a config file is allowed to set. Anything else is ignored — the same
+ * file holds `apiKeys`, and credentials must not ride along in this object.
  */
 const CONFIG_KEYS = Object.keys(DEFAULTS) as (keyof CodemonConfig)[];
 
 export interface LoadConfigOptions {
-  /**
-   * Root the two project-level config files are read from. Defaults to the
-   * current directory, but `--region` moves the project and the config has to
-   * follow it — so the CLI resolves the region before it loads the config.
-   */
+  /** Root the project-level config files are read from. Defaults to cwd, but
+   *  `--region` moves the project and the config follows it. */
   projectRoot?: string;
 }
 
@@ -89,9 +85,8 @@ function pickConfigKeys(raw: unknown, source: string): Partial<CodemonConfig> {
     picked[key] = value;
   }
 
-  // `/connector` persists the selected model under `defaultModel` (see
-  // user-config.ts). It writes the same file this reads, so honour the alias —
-  // otherwise choosing a model in the TUI persists nothing anybody reads back.
+  // `/connector` persists the selected model under `defaultModel` into this
+  // same file, so honour the alias.
   if (picked.model === undefined && typeof record.defaultModel === "string") {
     picked.model = record.defaultModel;
   }
@@ -127,14 +122,9 @@ function definedOnly(overrides: Partial<CodemonConfig>): Partial<CodemonConfig> 
 }
 
 /**
- * Assemble the runtime config, lowest precedence first:
- *
- *   1. built-in DEFAULTS
- *   2. ~/.codemon/config.json          user-level, and where /connector writes
- *   3. <project>/codemon.json          committed with the repo
- *   4. <project>/.codemon/config.json  project-local, gitignored
- *   5. CODEMON_MODEL                   environment
- *   6. `overrides`                     CLI flags
+ * Assemble the runtime config, lowest precedence first: DEFAULTS,
+ * ~/.codemon/config.json, <project>/codemon.json, <project>/.codemon/config.json,
+ * CODEMON_MODEL, then CLI `overrides`.
  */
 export function loadConfig(
   overrides: Partial<CodemonConfig> = {},
@@ -151,4 +141,22 @@ export function loadConfig(
   };
 
   return { ...DEFAULTS, ...config };
+}
+
+/** Used when neither the config nor the catalog has anything better to say. */
+export const FALLBACK_CONTEXT_TOKENS = 100_000;
+
+/**
+ * The history budget to actually use, for `model` if given or the configured one.
+ *
+ * A flat ceiling trimmed a million-token model at a tenth of its window and blew
+ * straight past a 32k one — the first wastes context, the second 400s mid-session
+ * — so the default is to take the window from the catalog. A non-zero
+ * `maxContextTokens` is a deliberate override and always wins, including after
+ * `/connector` switches models, which is the whole reason this is a function of
+ * the model rather than a value baked in at load time.
+ */
+export function effectiveContextTokens(config: CodemonConfig, model?: string): number {
+  if (config.maxContextTokens > 0) return config.maxContextTokens;
+  return resolveContextWindow(model ?? config.model, config.maxTokens, FALLBACK_CONTEXT_TOKENS);
 }

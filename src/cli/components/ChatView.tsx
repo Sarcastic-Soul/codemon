@@ -20,10 +20,8 @@ interface ChatViewProps {
 }
 
 /**
- * The transcript is `overflow="hidden"` with no scrollback, so anything taller
- * than the terminal is unreachable anyway — rendering it only costs a re-layout
- * of every line on every keystroke, since the input box shares this tree.
- * Windowing keeps that cost flat as a session grows.
+ * The transcript has no scrollback, so anything taller than the terminal is
+ * unreachable anyway. Windowing keeps re-layout cost flat as a session grows.
  */
 export const DEFAULT_MAX_VISIBLE = 12;
 
@@ -69,9 +67,8 @@ export function ChatView({ messages, streamingText, maxVisible = DEFAULT_MAX_VIS
 }
 
 /**
- * Memoized on the message object, which never changes once its turn is over.
- * Without this, typing a character re-splits and re-renders every line of every
- * message in the window.
+ * Memoized on the message object, which never changes once its turn is over —
+ * otherwise every keystroke re-renders every line in the window.
  */
 const MessageRow = React.memo(function MessageRow({ message }: { message: Message }) {
   return (

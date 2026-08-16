@@ -99,9 +99,8 @@ describe("flags with a missing value", () => {
 });
 
 /**
- * Startup side effects — the gitignore entry and the database handle. Both live
- * at module scope in index.tsx, so they only happen in a real process. `--sessions`
- * is the cheapest flag that runs all of startup and then exits.
+ * Startup side effects — the gitignore entry and the database handle — live at
+ * module scope, so `--sessions` is the cheapest flag that runs all of startup.
  */
 describe("startup housekeeping", () => {
   async function runIn(cwd: string, args: string[] = ["--sessions"]) {

@@ -4,8 +4,8 @@ import * as path from "path";
 const RULES_FILENAMES = ["codemon.md", "CODEMON.md", "codemon.MD"];
 
 /**
- * Reads the agent rules file (codemon.md) from the project root.
- * Returns its content to be injected into the system prompt, or null if not found.
+ * Reads codemon.md from the project root, returning it for injection into the
+ * system prompt, or null if absent.
  */
 export function loadAgentRules(projectRoot: string = process.cwd()): string | null {
   for (const filename of RULES_FILENAMES) {

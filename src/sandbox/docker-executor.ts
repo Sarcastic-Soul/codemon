@@ -44,9 +44,8 @@ export async function buildSandboxImage(): Promise<void> {
 }
 
 /**
- * Execute a shell command inside the Docker sandbox.
- * The project root is mounted read-write at /workspace.
- * Network is disabled by default for security.
+ * Execute a shell command inside the Docker sandbox. The project root is mounted
+ * read-write at /workspace, and the network is disabled by default.
  */
 export async function dockerExec(
   command: string,
@@ -69,9 +68,8 @@ export async function dockerExec(
 
   logger.info("docker-executor: running command", { command, projectRoot });
 
-  // Assembled as argv so the host never parses this through a shell. `command`
-  // is one element, handed straight to the container's bash — it is the user's
-  // own command and is meant to be interpreted there, but only there.
+  // Assembled as argv so the host never parses this through a shell: `command`
+  // is one element, interpreted only by the container's bash.
   const argv = [
     "docker",
     "run",
@@ -95,8 +93,8 @@ export async function dockerExec(
 }
 
 /**
- * Auto-setup: check Docker availability and build image if needed.
- * Returns false if Docker is not available (caller should fall back to subprocess).
+ * Check Docker availability and build the image if needed. Returns false when
+ * Docker is unavailable, so the caller can fall back to a subprocess.
  */
 export async function ensureSandbox(): Promise<boolean> {
   try {

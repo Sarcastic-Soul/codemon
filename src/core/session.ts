@@ -14,9 +14,8 @@ export interface Session {
   id: string;
   startedAt: string;
   messages: ModelMessage[];
-  /** Prompt and completion tokens are tracked apart: an agentic loop resends
-   *  the whole history every turn, so prompt tokens dominate spend while
-   *  completion tokens measure what the model actually wrote. */
+  /** Tracked apart: an agentic loop resends the whole history every turn, so
+   *  prompt tokens dominate spend. */
   promptTokensUsed: number;
   completionTokensUsed: number;
   /** promptTokensUsed + completionTokensUsed */
@@ -28,12 +27,8 @@ export interface Session {
 const NO_TOKENS = { promptTokensUsed: 0, completionTokensUsed: 0, totalTokensUsed: 0 };
 
 /**
- * Usage as stored, ready to seed a resumed session with.
- *
- * `total_tokens` used to mean completion tokens only, before the two halves were
- * recorded separately. A row from then has a total its two columns don't
- * account for, and that remainder is completion by definition — attributing it
- * keeps `total = prompt + completion` true without inventing a split.
+ * Usage as stored, ready to seed a resumed session with. Older rows counted
+ * `total_tokens` as completion only, so the unattributed remainder goes there.
  */
 function seedTokens(row: StoredSession) {
   const unattributed = Math.max(0, row.totalTokens - row.promptTokens - row.completionTokens);
@@ -48,9 +43,8 @@ function seedTokens(row: StoredSession) {
 let currentSession: Session | null = null;
 
 /**
- * Whether the current session has a row yet. A session is only written once it
- * has something in it — launching Codemon and quitting used to leave a row
- * behind, and the picker is only worth having while it stays scannable.
+ * Whether the current session has a row yet. Sessions are written lazily, once
+ * they have content, so the picker stays scannable.
  */
 let persisted = false;
 
@@ -71,8 +65,7 @@ export function createSession(region: string, model = ""): Session {
 
 /**
  * Write the session row if it isn't there yet. Called before anything that
- * references the session id — messages and checkpoints both carry a foreign key
- * to it, and the row now arrives later than it used to.
+ * references the session id — messages and checkpoints carry a foreign key to it.
  */
 export function ensureSessionPersisted(): void {
   const session = getSession();
@@ -84,9 +77,8 @@ export function ensureSessionPersisted(): void {
 }
 
 /**
- * Resume the most recent session for this region.
- * Loads its messages from SQLite back into memory.
- * Returns null if no prior session found.
+ * Resume the most recent session for this region, loading its messages back
+ * from SQLite. Returns null if no prior session found.
  */
 export function resumeLastSession(region: string): Session | null {
   try {
@@ -98,10 +90,7 @@ export function resumeLastSession(region: string): Session | null {
   }
 }
 
-/**
- * Resume any specific past session by its ID.
- * Used by the interactive SessionPicker.
- */
+/** Resume a specific past session by its ID. Used by the SessionPicker. */
 export function resumeSpecificSession(sessionId: string, region: string, model: string): Session {
   const row = dbGetSession(sessionId);
   if (!row) throw new Error(`No stored session with id "${sessionId}".`);
@@ -109,11 +98,8 @@ export function resumeSpecificSession(sessionId: string, region: string, model: 
 }
 
 /**
- * Make a stored session the current one, carrying its usage back in.
- *
- * Resuming used to start the counters at zero, and the next write pushed those
- * zeros over the real total — so a resumed session permanently read as having
- * cost nothing.
+ * Make a stored session the current one, carrying its usage back in — starting
+ * the counters at zero would push those zeros over the real total.
  */
 function adopt(row: StoredSession, region: string, model: string): Session {
   const session: Session = {
@@ -136,9 +122,8 @@ export function getSession(): Session {
 }
 
 /**
- * Drop the in-memory session, returning the module to its pre-`createSession`
- * state. Anything already written stays in the database — this ends the
- * session, it does not delete it.
+ * Drop the in-memory session. Anything already written stays in the database —
+ * this ends the session, it does not delete it.
  */
 export function endSession(): void {
   currentSession = null;
@@ -181,8 +166,7 @@ export function updateSessionModel(model: string): void {
     const session = getSession();
     session.model = model;
     // Deliberately does not create the row: switching model before typing
-    // anything is still an empty session. `ensureSessionPersisted` writes
-    // whatever model is current when the first message arrives.
+    // anything is still an empty session.
     if (persisted) dbUpdateSessionModel(session.id, model);
   } catch {}
 }

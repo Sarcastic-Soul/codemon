@@ -6,15 +6,13 @@ import type { ToolCallEntry } from "./components/ToolCallView.tsx";
 import { ALL_COMMANDS } from "./commands/index.ts";
 import { USAGE } from "./parse-args.ts";
 import { ContextManager } from "../core/context-manager.ts";
-import { DEFAULTS } from "../config/defaults.ts";
+import { DEFAULTS, effectiveContextTokens } from "../config/defaults.ts";
 import type { ModelMessage } from "../providers/types.ts";
 
 /**
- * The TUI has no test renderer in this project, so what is asserted here is the
- * logic the render reads: how much of the transcript is drawn, what the token
- * meter measures, and whether the help surfaces still agree with the command
- * registry. The React side of each — memoized rows, inline placement — is
- * structural and shows up in the components themselves.
+ * With no test renderer here, what is asserted is the logic the render reads:
+ * transcript windowing, what the token meter measures, and whether the help
+ * surfaces still agree with the command registry.
  */
 
 function transcript(n: number): Message[] {
@@ -99,14 +97,20 @@ describe("token meter", () => {
   test("the meter's own number is what the context manager measures", () => {
     // The meter is fed `estimatedTokens` from the loop's `context` event, which
     // is `getStats` on the messages actually sent. Same input, same figure.
-    const manager = new ContextManager(DEFAULTS.maxContextTokens);
+    // A real budget, not DEFAULTS.maxContextTokens — that is now the `0` "size
+    // it to the model" sentinel, and would make both sides divide by zero and
+    // agree on nothing.
+    const budget = effectiveContextTokens(DEFAULTS);
+    expect(budget).toBeGreaterThan(0);
+
+    const manager = new ContextManager(budget);
     const messages: ModelMessage[] = [
       { role: "user", content: "x".repeat(4000) },
       { role: "assistant", content: "y".repeat(4000) },
     ];
     const stats = manager.getStats(messages, "system prompt");
 
-    expect(contextMeter(stats.estimatedTokens, DEFAULTS.maxContextTokens).percentUsed).toBe(
+    expect(contextMeter(stats.estimatedTokens, budget).percentUsed).toBe(
       Math.min(100, stats.percentUsed),
     );
   });
@@ -183,9 +187,7 @@ describe("diff extraction", () => {
 });
 
 describe("help surfaces", () => {
-  // `--help` used to carry a hand-written list: /connector, /model and the exit
-  // aliases. /help, /clear, /cls, /config and /? were in the TUI but nowhere in
-  // the CLI help.
+  // A hand-written list in `--help` left several TUI commands undocumented.
   test("--help lists every registered command and alias", () => {
     for (const cmd of ALL_COMMANDS) {
       for (const alias of cmd.names) {

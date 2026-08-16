@@ -13,18 +13,14 @@ export interface ExecResult {
 const DEFAULT_TIMEOUT_MS = 30_000;
 
 /**
- * Most output captured per stream. A command that produces more has the rest
- * dropped as it arrives rather than buffered and trimmed afterwards — callers
- * show a few thousand characters at most, so holding a gigabyte first only
- * risks the process.
+ * Most output captured per stream. Anything beyond is dropped as it arrives
+ * rather than buffered and trimmed afterwards.
  */
 const MAX_CAPTURE_BYTES = 1024 * 1024;
 
 /**
- * Drains a stream up to `maxBytes`, then stops consuming it.
- *
- * Cancelling closes our end of the pipe, so a runaway writer gets EPIPE instead
- * of being allowed to keep filling memory.
+ * Drains a stream up to `maxBytes`, then stops consuming it. Cancelling closes
+ * our end of the pipe, so a runaway writer gets EPIPE.
  */
 async function readCapped(
   stream: ReadableStream<Uint8Array>,
@@ -61,12 +57,8 @@ async function readCapped(
 }
 
 /**
- * Spawns argv directly and captures its output.
- * - cwd is forced to the project root
- * - Timeout kills the process if exceeded
- * - Output is capped per stream at `MAX_CAPTURE_BYTES`
- * - A missing binary comes back as exit code 127 rather than throwing, so
- *   callers can probe for optional tools the same way a shell would report them
+ * Spawns argv directly and captures its output. cwd is forced to the project
+ * root, output is capped per stream, and a missing binary yields exit code 127.
  */
 async function spawnCaptured(argv: string[], timeoutMs: number): Promise<ExecResult> {
   const cwd = getProjectRoot();
@@ -115,12 +107,9 @@ async function spawnCaptured(argv: string[], timeoutMs: number): Promise<ExecRes
 }
 
 /**
- * Runs a command string through `bash -c`.
- *
- * The string is parsed by a shell, so every metacharacter in it is live. Use
- * this only for commands the user explicitly asked to run (the `bash` tool) or
- * for fully static command strings. Never assemble one of these by
- * interpolating tool arguments — reach for `shellExecArgv` instead.
+ * Runs a command string through `bash -c`, so every metacharacter in it is live.
+ * Use only for user-authored or fully static commands — never interpolate tool
+ * arguments into one; reach for `shellExecArgv` instead.
  */
 export async function shellExec(
   command: string,
@@ -131,12 +120,8 @@ export async function shellExec(
 }
 
 /**
- * Runs a program directly from an argv array, with no shell in between.
- *
- * Every element is handed to the process verbatim, so quotes, semicolons,
- * backticks and `$(…)` in an argument are ordinary characters rather than
- * syntax. This is the only safe way to run a command built from
- * model-supplied arguments.
+ * Runs a program from an argv array with no shell in between — every element
+ * reaches the process verbatim. The only safe way to run model-supplied args.
  */
 export async function shellExecArgv(
   argv: string[],

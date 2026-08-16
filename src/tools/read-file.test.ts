@@ -6,9 +6,8 @@ import { readFileTool } from "./read-file.ts";
 import { setProjectRoot, getProjectRoot } from "../sandbox/path-jail.ts";
 
 /**
- * `read_file` used to hand the whole file to the model as UTF-8 with no size or
- * type check, so a lockfile, a minified bundle or a binary went straight into
- * the message history and stayed there for the rest of the session.
+ * Without a size or type check, a lockfile, minified bundle or binary would go
+ * into the message history and stay there for the rest of the session.
  */
 
 interface ReadResult {

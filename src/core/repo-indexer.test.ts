@@ -5,11 +5,8 @@ import * as path from "path";
 import { buildRepoIndex } from "./repo-indexer.ts";
 
 /**
- * The indexer used to splice `projectRoot` into `bash -c` strings inside single
- * quotes. `projectRoot` comes from `--region` or the cwd rather than from the
- * model, so this was a quoting bug rather than a way in — but a path holding an
- * apostrophe ended the quote and the command died with a syntax error, leaving
- * the system prompt without recent files or git status and saying nothing.
+ * The indexer must not splice `projectRoot` into a shell string: a path holding
+ * an apostrophe silently cost the prompt its recent files and git status.
  */
 describe("buildRepoIndex", () => {
   let base: string;

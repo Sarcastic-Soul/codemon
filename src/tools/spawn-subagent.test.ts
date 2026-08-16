@@ -49,9 +49,8 @@ describe("spawn_subagent permission inheritance", () => {
   });
 
   test("a safe-mode parent does not hand its sub-agent bash", async () => {
-    // The sub-agent used to be pinned to yolo regardless of the parent, so
-    // approving one delegation from safe mode bought unrestricted write and
-    // bash for the whole sub-task.
+    // A sub-agent pinned to yolo would turn one approved delegation into
+    // unrestricted write and bash for the whole sub-task.
     const result = await delegate("safe", subAgentThatCalls("bash", { command: "echo escalated" }));
 
     expect(errorsOf(result)).toContain("denied");

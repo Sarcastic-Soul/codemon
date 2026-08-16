@@ -1,12 +1,8 @@
 /**
- * String replacement for edit_file.
- *
- * Two strategies, tried in order: an exact match, then a line-based fuzzy match
- * that tolerates the whitespace and indent drift models produce. Neither one
- * guesses — when more than one place in the file fits, the edit is refused
- * rather than applied to the first of them. An edit that lands on the wrong
- * block looks exactly like one that landed correctly from the outside, so
- * ambiguity has to be an error rather than a coin flip.
+ * String replacement for edit_file. Two strategies tried in order: exact match,
+ * then a line-based fuzzy match that tolerates whitespace and indent drift.
+ * Ambiguity is an error — an edit that lands on the wrong block looks exactly
+ * like one that landed correctly.
  */
 import * as diffLib from "diff";
 
@@ -24,21 +20,15 @@ export interface ApplyResult {
 }
 
 /**
- * Minimum share of normalized lines a block must match to be edited.
- *
- * Normalization already absorbs whitespace drift, which is the only difference
- * this path exists to forgive — anything below the threshold differs in content
- * the model named wrongly. At the old 0.7, three lines in ten could be text the
- * model never mentioned and still get overwritten wholesale.
+ * Minimum share of normalized lines a block must match to be edited. Whitespace
+ * drift is already absorbed, so anything below this differs in real content.
  */
 const MIN_SIMILARITY = 0.9;
 
 /** A disjoint block scoring within this of the winner makes the choice a toss-up. */
 const AMBIGUITY_MARGIN = 0.05;
 
-/**
- * Normalize whitespace for fuzzy matching — collapse runs of spaces/tabs.
- */
+/** Normalize whitespace for fuzzy matching — collapse runs of spaces/tabs. */
 function normalize(s: string): string {
   return s.replace(/[ \t]+/g, " ").trim();
 }
@@ -187,9 +177,7 @@ export function applyEdit(
   return succeed(newLines.join("\n"), "fuzzy", match.score);
 }
 
-/**
- * Parse a unified diff string into colored lines for display.
- */
+/** Parse a unified diff string into colored lines for display. */
 export function parseDiffLines(unified: string): Array<{ type: "add" | "remove" | "context" | "header"; line: string }> {
   return unified.split("\n").map((line) => {
     if (line.startsWith("+++") || line.startsWith("---") || line.startsWith("@@")) {

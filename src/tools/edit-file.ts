@@ -31,12 +31,10 @@ export const editFileTool: ToolDefinition<typeof schema> = {
 
     const originalContent = fs.readFileSync(absPath, "utf8");
 
-    // Checkpoint before any edit (idempotent — only saves the first per file per session)
+    // Checkpoint before any edit (idempotent — first save per file per session)
     try {
       const session = getSession();
-      // Checkpoints carry a foreign key to the session, and the row is written
-      // lazily — a message always comes first in practice, but the ordering
-      // shouldn't be what holds this up.
+      // Checkpoints carry a foreign key to the session, whose row is written lazily.
       ensureSessionPersisted();
       dbSaveCheckpoint(session.id, absPath, originalContent, "edit_file");
     } catch {}

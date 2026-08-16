@@ -26,8 +26,8 @@ import * as path from "path";
 import * as fs from "fs";
 
 // ─── Parse CLI args ───────────────────────────────────────────────────────────
-// Flags are declared in parse-args.ts, which is also where a missing value or an
-// unknown mode turns into a message. Nothing below sees a malformed flag.
+// parse-args.ts declares every flag and rejects malformed ones, so nothing below
+// sees a bad value.
 const parsed = parseArgs(process.argv.slice(2));
 if (!parsed.ok) {
   console.error(`❌ ${parsed.error}`);
@@ -43,9 +43,8 @@ if (flags.help || flags.h) {
 }
 
 // ─── Project root ─────────────────────────────────────────────────────────────
-// Resolved before the config is read: `codemon.json` and `.codemon/config.json`
-// live under the region, so loading them from the launch directory would read
-// the wrong project's settings whenever `--region` points elsewhere.
+// Resolved before the config is read: the project config files live under the
+// region, so `--region` has to be applied first.
 const projectRoot = path.resolve(typeof flags.region === "string" ? flags.region : process.cwd());
 
 // ─── Build config ─────────────────────────────────────────────────────────────
@@ -90,8 +89,7 @@ const dbPath = path.join(projectRoot, ".codemon", "sessions.db");
 initDb(dbPath);
 
 // WAL journaling leaves `-wal` and `-shm` beside the database until the last
-// connection closes. Every exit path goes through here, including the
-// subcommands that `process.exit` a few lines down.
+// connection closes, so every exit path goes through here.
 process.on("exit", closeDb);
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
@@ -100,11 +98,8 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
   });
 }
 
-// Ensure .codemon is in .gitignore. Created when absent — it only used to be
-// appended to, so a repo without a .gitignore showed the session database in
-// `git status`. Left alone entirely outside a repo: there is nothing to hide
-// from, and writing a stray .gitignore into someone's directory is worse than
-// not having one.
+// Ensure .codemon is in .gitignore, creating the file when absent. Skipped
+// outside a repo rather than writing a stray .gitignore into a directory.
 try {
   const gitignorePath = path.join(projectRoot, ".gitignore");
   const existing = fs.existsSync(gitignorePath) ? fs.readFileSync(gitignorePath, "utf8") : null;

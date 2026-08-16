@@ -1,9 +1,6 @@
 /**
- * Audit trail for every decision the permission gate makes.
- *
- * Decisions go straight to SQLite alongside sessions and checkpoints, and come
- * back out through `codemon --audit`. There is no in-memory copy: this used to
- * accumulate every decision in a module-level array that nothing ever read.
+ * Audit trail for every decision the permission gate makes. Decisions go
+ * straight to SQLite — no in-memory copy — and come back out via `--audit`.
  */
 import { dbInsertDecision, type AuditDecision } from "../storage/audit.repo.ts";
 import { getSession } from "../core/session.ts";

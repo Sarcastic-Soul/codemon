@@ -1,7 +1,4 @@
-/**
- * Provider type definitions — shared interface for all LLM backends.
- * Uses Vercel AI SDK v7's ModelMessage type for interoperability.
- */
+/** Shared interface for all LLM backends, built on AI SDK v7's `ModelMessage`. */
 import type { ModelMessage, ToolSet } from "ai";
 
 export type { ModelMessage };

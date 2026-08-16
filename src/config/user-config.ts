@@ -1,34 +1,42 @@
 import * as fs from "fs";
-import * as path from "path";
-import * as os from "os";
+import { getUserConfigDir, getUserConfigPath } from "./paths.ts";
+import { getProviderEnvVars } from "../providers/catalog.ts";
+
+// Re-exported so existing importers of `user-config.ts` keep working now that
+// the path helpers live in their own module (see paths.ts for why).
+export { getUserConfigDir, getUserConfigPath };
+
+/**
+ * A provider the catalog does not know about, declared by hand under
+ * `providers.<id>` — the escape hatch for anything local or private, since
+ * models.dev only catalogues hosted services.
+ */
+export interface CustomProviderData {
+  name?: string;
+  /** Base URL. Required — it is the whole point of a custom entry. */
+  api: string;
+  /** Defaults to `@ai-sdk/openai-compatible`. */
+  npm?: string;
+  /** Extra env vars to read the key from. */
+  env?: string[];
+  /** Model ids to offer in the picker. */
+  models?: string[];
+}
 
 /**
  * The half of `~/.codemon/config.json` that belongs to the user rather than to a
- * run: credentials and the model `/connector` last selected. `loadConfig` reads
- * the same file for `CodemonConfig` keys and reads `defaultModel` as its
- * user-level model tier — but it copies nothing else out, so keys never leave
- * this module.
+ * run: credentials, custom providers, and the model `/connector` last selected.
+ * `loadConfig` reads only `defaultModel` out of it, so keys never leave this
+ * module.
  */
 export interface UserConfigData {
   /** Model chosen in `/connector`. Read back by `loadConfig` as the `model` tier. */
   defaultModel?: string;
   apiKeys?: Record<string, string>; // e.g. { google: "key...", anthropic: "key..." }
-  endpoints?: Record<string, string>; // e.g. { custom: "http://localhost:11434" }
-}
-
-/**
- * Directory holding the user-level config. `CODEMON_CONFIG_DIR` overrides the
- * default, which is how the tests stay out of the real home directory. Resolved
- * per call rather than captured at import time so the override still applies to
- * a process that sets it after this module loads.
- */
-export function getUserConfigDir(): string {
-  const override = process.env.CODEMON_CONFIG_DIR?.trim();
-  return override ? path.resolve(override) : path.join(os.homedir(), ".codemon");
-}
-
-export function getUserConfigPath(): string {
-  return path.join(getUserConfigDir(), "config.json");
+  /** Base URL overrides for catalogued providers, keyed by provider id. */
+  endpoints?: Record<string, string>; // e.g. { deepseek: "http://localhost:8000/v1" }
+  /** Providers the catalog does not carry, keyed by provider id. */
+  providers?: Record<string, CustomProviderData>;
 }
 
 export function loadUserConfig(): UserConfigData {
@@ -84,26 +92,29 @@ export function maskApiKey(apiKey: string | undefined): string {
   return `••••••••${last4}`;
 }
 
+/** Base URL override for a provider, if the user declared one. */
+export function getEndpointOverride(provider: string): string | undefined {
+  const norm = provider.toLowerCase();
+  const config = loadUserConfig();
+  return config.endpoints?.[norm] ?? config.providers?.[norm]?.api;
+}
+
+/**
+ * Resolve a provider's API key, env var first and stored config second. Env var
+ * names come from the catalog, plus a derived `<PROVIDER>_API_KEY` fallback.
+ */
 export function getEffectiveApiKey(provider: string): string | undefined {
   const norm = provider.toLowerCase();
 
-  // Precedence 2: Environment Variable
-  const envMap: Record<string, string | undefined> = {
-    google: process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY,
-    anthropic: process.env.ANTHROPIC_API_KEY,
-    openai: process.env.OPENAI_API_KEY,
-    mistral: process.env.MISTRAL_API_KEY,
-  };
-
-  if (envMap[norm]) {
-    return envMap[norm];
+  // Precedence 1: Environment Variable
+  for (const name of getProviderEnvVars(norm)) {
+    const value = process.env[name]?.trim();
+    if (value) return value;
   }
 
-  // Precedence 3: Stored User Config (~/.codemon/config.json)
-  const userConfig = loadUserConfig();
-  if (userConfig.apiKeys?.[norm]) {
-    return userConfig.apiKeys[norm];
-  }
+  // Precedence 2: Stored User Config (~/.codemon/config.json)
+  const stored = loadUserConfig().apiKeys?.[norm]?.trim();
+  if (stored) return stored;
 
   return undefined;
 }

@@ -10,9 +10,8 @@ const schema = z.object({
 });
 
 /**
- * Most content one call will return. Whatever comes back here lands in the
- * message history and is resent on every subsequent turn, so the cap is about
- * the conversation rather than about memory.
+ * Most content one call will return. What comes back is resent on every turn,
+ * so the cap is about the conversation rather than about memory.
  */
 const MAX_CONTENT_BYTES = 256 * 1024;
 
@@ -48,10 +47,8 @@ interface RangeRead {
 }
 
 /**
- * Reads lines `from`..`to` (1-indexed, inclusive) a chunk at a time, keeping
- * only the requested window and stopping as soon as it is filled. A range out
- * of a large file therefore never pulls the whole file into memory, which is
- * what makes suggesting a range a real answer to an oversized file.
+ * Reads lines `from`..`to` (1-indexed, inclusive) a chunk at a time, stopping as
+ * soon as the window is filled so a large file is never pulled into memory.
  */
 function readLineRange(absPath: string, from: number, to: number, maxBytes: number): RangeRead {
   const fd = fs.openSync(absPath, "r");

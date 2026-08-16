@@ -21,7 +21,7 @@ export async function runEvalSuite(options: { model?: string } = {}): Promise<Ev
   if (!fs.existsSync(tmpBase)) fs.mkdirSync(tmpBase, { recursive: true });
 
   const config = loadConfig({
-    model: options.model ?? "google:gemini-2.0-flash-exp",
+    model: options.model ?? "google:gemini-flash-latest",
     permissionMode: "yolo",
     repoIndex: false,
   });

@@ -22,10 +22,8 @@ function toolResult(id: string): ModelMessage {
 }
 
 /**
- * One turn of an agentic exchange: the user's request, then whatever answering
- * it took. Turns are deliberately uneven — some need two tool rounds, some need
- * none — because a real history is, and a fixed-count trim only orphans a
- * tool-call when the boundary doesn't happen to line up with a turn.
+ * One turn of an agentic exchange. Turns are deliberately uneven, as a real
+ * history is, so the trim boundary doesn't always line up with a turn.
  */
 function turn(n: number): ModelMessage[] {
   const user: ModelMessage = {
@@ -99,10 +97,8 @@ describe("ContextManager", () => {
   });
 
   test("a 200-turn history keeps every tool-call paired with its result", () => {
-    // The bug this pins down: `slice(-20)` can cut between an assistant message
-    // carrying tool-call parts and the tool message carrying their results.
-    // Anthropic and OpenAI both reject that shape, so the session works fine
-    // until it crosses the threshold and then every request 400s.
+    // A flat `slice(-20)` can cut between an assistant message carrying
+    // tool-call parts and the tool message with their results — a 400 shape.
     const cm = new ContextManager(2000);
     const result = cm.maybeTruncate(history(200), "system prompt");
 

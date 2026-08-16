@@ -1,7 +1,6 @@
 /**
- * Pokédex — SQLite persistence layer.
- * Uses Bun's built-in bun:sqlite (zero config, zero deps).
- * DB path: <project-root>/.codemon/sessions.db (gitignored)
+ * Pokédex — SQLite persistence layer, backed by bun:sqlite at
+ * <project-root>/.codemon/sessions.db (gitignored).
  */
 import { Database } from "bun:sqlite";
 import * as fs from "fs";
@@ -68,8 +67,7 @@ CREATE INDEX IF NOT EXISTS idx_sessions_region    ON sessions(region, last_activ
 
 /**
  * Columns added to `sessions` after the first release. `CREATE TABLE IF NOT
- * EXISTS` leaves an existing table alone, so a database written by an older
- * build needs them attached here.
+ * EXISTS` leaves an existing table alone, so older databases need them here.
  */
 const SESSION_COLUMNS: Array<[name: string, definition: string]> = [
   ["prompt_tokens", "INTEGER NOT NULL DEFAULT 0"],

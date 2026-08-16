@@ -2,12 +2,8 @@ import { describe, test, expect } from "bun:test";
 import { applyEdit, type ApplyStrategy } from "./diff-apply.ts";
 
 /**
- * `applyEdit` used to take any block scoring 70% on normalized line equality
- * and overwrite the whole window, and to reach for `String.replace` on the
- * exact path — which silently takes the first of N occurrences. Both report
- * `success: true`, so an edit landing on the wrong lines is indistinguishable
- * from one landing on the right ones. These cases pin down that anything
- * ambiguous now comes back as an error instead of an edit.
+ * An edit landing on the wrong lines reports `success: true` just like a correct
+ * one, so these cases pin down that anything ambiguous comes back as an error.
  */
 
 interface Success {

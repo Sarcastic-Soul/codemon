@@ -1,16 +1,12 @@
 import type { Provider, ModelMessage } from "../providers/types.ts";
-import { DEFAULTS, type CodemonConfig } from "../config/defaults.ts";
+import { DEFAULTS, effectiveContextTokens, type CodemonConfig } from "../config/defaults.ts";
 import { buildToolSet, getTool } from "../tools/registry.ts";
 import { checkPermission, rememberAlways, recordUserDecision } from "../permissions/gate.ts";
 import { ContextManager } from "./context-manager.ts";
 import { addMessage, updateTokenUsage, getMessages } from "./session.ts";
 import { logger } from "../utils/logger.ts";
 
-/**
- * Convert a tool execution result to the AI SDK v7 `output` schema.
- * SDK v7 requires: { type: "text", value: string } | { type: "json", value: JSONValue }
- * instead of the older `result: unknown` shape.
- */
+/** Convert a tool execution result to the AI SDK v7 `output` schema. */
 function toToolOutput(value: unknown): { type: "text"; value: string } | { type: "json"; value: unknown } {
   if (typeof value === "string") return { type: "text", value };
   return { type: "json", value: value ?? null };
@@ -88,7 +84,8 @@ async function* _agentLoop(
   store: MessageStore,
   toolNameFilter?: Set<string>, // optional: restrict which tools are available
 ): AsyncGenerator<AgentEvent> {
-  const contextManager = new ContextManager(config.maxContextTokens);
+  const contextBudget = effectiveContextTokens(config);
+  const contextManager = new ContextManager(contextBudget);
   const allTools = buildToolSet();
 
   // Optionally filter tools for sub-agents
@@ -99,9 +96,8 @@ async function* _agentLoop(
   // Add the user message to history
   store.addMessage({ role: "user", content: userMessage });
 
-  // `config` can come straight from a hand-written config.json, so a value that
-  // would disable the ceiling falls back to the default rather than looping
-  // forever.
+  // A hand-written config.json could disable the ceiling, so a bad value falls
+  // back to the default rather than looping forever.
   const maxTurns =
     Number.isFinite(config.maxTurns) && config.maxTurns > 0
       ? Math.floor(config.maxTurns)
@@ -112,9 +108,8 @@ async function* _agentLoop(
 
   while (continueLoop) {
     if (turnsUsed >= maxTurns) {
-      // Only reachable when the model keeps asking for tools — a turn that ends
-      // with plain text exits below. Say so out loud: a silent stop is
-      // indistinguishable from the agent deciding it was finished.
+      // Only reachable when the model keeps asking for tools. Say so out loud:
+      // a silent stop looks like the agent deciding it was finished.
       const notice =
         `⚠️ Stopped after ${maxTurns} tool-calling turns without a final answer ` +
         `(max-turns budget). Nothing was rolled back — send another message to continue, ` +
@@ -135,7 +130,7 @@ async function* _agentLoop(
     yield {
       type: "context",
       estimatedTokens: contextStats.estimatedTokens,
-      maxTokens: config.maxContextTokens,
+      maxTokens: contextBudget,
       percentUsed: contextStats.percentUsed,
       messageCount: contextStats.messageCount,
     };
@@ -163,9 +158,8 @@ async function* _agentLoop(
           break;
 
         case "finish":
-          // Both halves are recorded: on an agentic loop the prompt side is the
-          // overwhelming majority of spend, since every turn resends the whole
-          // history.
+          // Both halves are recorded: prompt tokens dominate spend, since every
+          // turn resends the whole history.
           if (event.usage) store.updateTokenUsage(event.usage);
           yield { type: "finish", reason: event.finishReason ?? "end_turn", usage: event.usage };
           break;
@@ -177,16 +171,14 @@ async function* _agentLoop(
           break;
       }
 
-      // An errored turn is over. Draining the rest of the stream and then
-      // running the tool calls it happened to collect executes side effects on
-      // behalf of a turn the model never finished.
+      // An errored turn is over — don't drain the stream and run side effects
+      // for a turn the model never finished.
       if (streamFailed) break;
     }
 
     if (streamFailed) {
-      // Keep whatever text arrived, but drop the tool calls: their results will
-      // never exist, and an assistant message carrying an unanswered tool-call
-      // is the orphan shape providers reject on the next request.
+      // Keep whatever text arrived, but drop the tool calls: an assistant
+      // message with an unanswered tool-call is the shape providers reject.
       if (assistantText) store.addMessage({ role: "assistant", content: assistantText });
       for (const tc of pendingToolCalls) {
         yield {
@@ -221,10 +213,8 @@ async function* _agentLoop(
     }> = [];
 
     for (const tc of pendingToolCalls) {
-      // Filtering the toolset above only shapes what the model is *offered*.
-      // It can still emit any name it likes, and `getTool` reads the global
-      // registry — so the filter has to be enforced here as well. Without this
-      // check the depth-1 sub-agent cap is a suggestion rather than a limit.
+      // Filtering the toolset only shapes what the model is *offered*, and
+      // `getTool` reads the global registry — so enforce the filter here too.
       if (toolNameFilter && !toolNameFilter.has(tc.toolName)) {
         const error = `Tool "${tc.toolName}" is not available to this agent`;
         toolResults.push({ type: "tool-result", toolCallId: tc.toolCallId, toolName: tc.toolName, output: { type: "json", value: { error } } });
@@ -311,10 +301,7 @@ export async function* runAgentWithStore(
   yield* _agentLoop(userMessage, provider, config, systemPrompt, store, toolFilter);
 }
 
-/**
- * Run an agent to full completion (non-streaming).
- * Useful for sub-agents and evals where you need the final output.
- */
+/** Run an agent to full completion (non-streaming), for sub-agents and evals. */
 export async function runToCompletion(
   userMessage: string,
   provider: Provider,
@@ -340,9 +327,8 @@ export async function runToCompletion(
       errors.push(`Turn budget exhausted after ${config.maxTurns} turns — the task may be incomplete`);
     }
 
-    // There is no UI attached to a headless run, so a confirmation prompt has
-    // nobody to answer it. Deny and carry on: the loop awaits this promise, and
-    // leaving it unsettled hangs the run with no timeout.
+    // A headless run has no UI to answer a prompt. Deny and carry on: leaving
+    // the promise unsettled hangs the run with no timeout.
     if (event.type === "permission-required") {
       errors.push(
         `${event.toolName}: denied — ${event.permissionLevel}-level tools need confirmation in "${config.permissionMode}" mode, and a sub-agent has no way to ask`,

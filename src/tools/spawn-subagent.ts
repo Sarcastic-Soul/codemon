@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { runToCompletion, createInMemoryStore } from "../core/agent-loop.ts";
 import { getCurrentProvider, getCurrentConfig } from "../core/provider-instance.ts";
 import { getProjectRoot } from "../sandbox/path-jail.ts";
 import type { ToolDefinition } from "./types.ts";
@@ -54,11 +53,8 @@ The sub-agent runs under the same permission mode as this session and cannot spa
     const parentConfig = getCurrentConfig();
     const projectRoot = getProjectRoot();
 
-    // The sub-agent inherits the parent's permission mode rather than being
-    // pinned to yolo. Approving one delegation used to buy unrestricted write
-    // and bash for the whole sub-task, even from safe mode — a quieter grant
-    // than the prompt implied. Anything that would need confirmation is denied
-    // by runToCompletion, since a sub-agent has no UI to ask through.
+    // Inherits the parent's permission mode. Anything needing confirmation is
+    // denied by runToCompletion, since a sub-agent has no UI to ask through.
     const subConfig = {
       ...parentConfig,
       maxTokens: max_tokens,
@@ -77,11 +73,13 @@ The sub-agent runs under the same permission mode as this session and cannot spa
       .filter(Boolean)
       .join("\n");
 
-    // Always pass a filter. `AVAILABLE_TOOLS` leaves out `spawn_subagent`, which
-    // is what caps nesting at depth 1 — but only now that the agent loop
-    // enforces the filter at execution instead of merely omitting it from the
-    // toolset it offers the model.
+    // Always pass a filter: the agent loop enforces it at execution, and
+    // `AVAILABLE_TOOLS` omitting `spawn_subagent` is what caps nesting.
     const toolFilter = new Set<string>(allowed_tools ?? AVAILABLE_TOOLS);
+
+    // Imported here, not at the top, to break the import cycle
+    // registry → spawn-subagent → agent-loop → registry.
+    const { runToCompletion, createInMemoryStore } = await import("../core/agent-loop.ts");
     const store = createInMemoryStore();
 
     const start = Date.now();

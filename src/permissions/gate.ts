@@ -7,16 +7,12 @@ export type GateDecision = "allow" | "deny" | "ask";
 /** Keys that have been "always allowed" in this session */
 const sessionAlways = new Set<string>();
 
-/**
- * Derives a cache key from tool name + args for "always allow" memory.
- */
+/** Derives a cache key from tool name + level for "always allow" memory. */
 function alwaysKey(toolName: string, level: PermissionLevel): string {
   return `${toolName}::${level}`;
 }
 
-/**
- * The permission gate. Given a tool invocation, returns whether to allow, deny, or ask the user.
- */
+/** The permission gate: allow, deny, or ask the user about a tool invocation. */
 export function checkPermission(
   toolName: string,
   permissionLevel: PermissionLevel,
@@ -46,16 +42,12 @@ export function checkPermission(
   return "ask";
 }
 
-/**
- * Called when the user responds "always" — remembers this for the rest of the session.
- */
+/** Called when the user responds "always" — remembered for the session. */
 export function rememberAlways(toolName: string, permissionLevel: PermissionLevel) {
   sessionAlways.add(alwaysKey(toolName, permissionLevel));
 }
 
-/**
- * Record a user decision (ask-allow or ask-deny) for audit purposes.
- */
+/** Record a user decision (ask-allow or ask-deny) for audit purposes. */
 export function recordUserDecision(
   toolName: string,
   permissionLevel: PermissionLevel,

@@ -34,7 +34,7 @@ codemon [options]
 
 | Flag | Description | Options / Default | Example |
 | :--- | :--- | :--- | :--- |
-| `--model <string>` | Specifies the provider and model string | `google:gemini-2.0-flash-exp` (default) | `--model anthropic:claude-sonnet-4-5` |
+| `--model <string>` | Provider and model, as `provider:model` | `google:gemini-flash-latest` (default) | `--model anthropic:claude-sonnet-5` |
 | `--mode <mode>` | Permission gate security level | `standard` (default), `safe`, `yolo` | `--mode yolo` |
 | `--sandbox <mode>` | Bash execution environment | `subprocess` (default), `docker` | `--sandbox docker` |
 | `--region <path>` | Sets working directory (project root) | Current working directory (`cwd`) | `--region /path/to/repo` |
@@ -63,12 +63,12 @@ Codemon resolves provider credentials and models in the following strict order:
 
 | Priority | Source | Description | Example |
 | :--- | :--- | :--- | :--- |
-| **1 (Highest)** | **CLI Flag** | Explicit startup override | `codemon --model anthropic:claude-sonnet-4-5` |
+| **1 (Highest)** | **CLI Flag** | Explicit startup override | `codemon --model anthropic:claude-sonnet-5` |
 | **2** | **Environment Variable** | Current shell session export | `export CODEMON_MODEL="..."`, `export GEMINI_API_KEY="..."` |
 | **3** | **Project-Local Config** | Per-checkout, gitignored | `<project>/.codemon/config.json` |
 | **4** | **Project Config** | Committed with the repository | `<project>/codemon.json` |
 | **5** | **Stored User Config** | Saved interactively via `/connector` | `~/.codemon/config.json` (`0600` POSIX mode) |
-| **6 (Lowest)** | **Built-in Default** | Default fallback | `google:gemini-2.0-flash-exp` |
+| **6 (Lowest)** | **Built-in Default** | Default fallback | `google:gemini-flash-latest` |
 
 Both project files are read from the region (`--region`), not the directory Codemon was launched
 from. The model `/connector` saves lands in the user config as `defaultModel`, so a project file
@@ -77,34 +77,78 @@ that pins `model` will keep overriding it — that is the intended direction of 
 ### Using the `/connector` Interactive Command
 
 In the running TUI prompt, type `/connector` (or `/config` / `/model`) and press `Enter`:
-1. **Select Provider**: Choose from Google Gemini, Anthropic Claude, OpenAI, or Mistral.
-2. **Enter API Key**: Paste key securely (stored in `~/.codemon/config.json` with `0600` permissions; masked as `••••••••1a4f`). Press `r` to clear a saved key.
-3. **Select Model**: Select pre-populated models or enter a custom model string. Mid-session switches update instantly!
+
+1. **Select Provider**: type to filter the ~185 catalogued providers; ones you already have a
+   key for float to the top. `ctrl-R` clears a saved key.
+2. **Enter API Key**: pasted keys are stored in `~/.codemon/config.json` with `0600` permissions
+   and shown masked as `••••••••1a4f`.
+3. **Select Model**: filter the provider's models, each annotated with its context window, or
+   enter any model id by hand. Mid-session switches take effect on the next message, and the
+   context budget re-sizes with them.
+
+`Esc` steps back a stage rather than closing the whole dialog.
+
+### Where providers and models come from
+
+Codemon does not carry a hardcoded provider list. It reads [models.dev](https://models.dev), an
+open catalog of providers and models, which supplies each provider's API key environment
+variables, base URL, driving SDK package, and per-model context window, pricing, and capability
+flags.
+
+- A **bundled snapshot** ships with the binary, so a fresh or offline install works immediately.
+- The full catalog is fetched in the background at most once a day and cached in
+  `~/.codemon/model-catalog.json`. Failures are silent and leave the previous catalog in place.
+- Regenerate the bundled snapshot with `bun run catalog:update`.
+
+Providers Codemon cannot construct — those needing a vendor SDK it does not bundle, such as
+Amazon Bedrock or Vertex AI — are hidden from the picker rather than offered and failing later.
 
 ### Provider API Keys
 
+Each provider's environment variables come from the catalog, so the right name is whatever that
+provider publishes. `/connector` prints the accepted names for the selected provider, and a
+missing key reports them too:
+
 ```bash
-# Google Gemini
-export GEMINI_API_KEY="your-gemini-api-key"
-# (or alternative standard variable)
-export GOOGLE_GENERATIVE_AI_API_KEY="your-gemini-api-key"
-
-# Anthropic Claude
-export ANTHROPIC_API_KEY="your-anthropic-api-key"
-
-# OpenAI
-export OPENAI_API_KEY="your-openai-api-key"
-
-# Mistral
-export MISTRAL_API_KEY="your-mistral-api-key"
+export GEMINI_API_KEY="…"        # or GOOGLE_GENERATIVE_AI_API_KEY / GOOGLE_API_KEY
+export ANTHROPIC_API_KEY="…"
+export OPENAI_API_KEY="…"
+export OPENROUTER_API_KEY="…"    # one key, hundreds of models
+export AI_GATEWAY_API_KEY="…"    # Vercel AI Gateway, same idea
 ```
 
-### Supported Model Formats
+A provider with no catalogued variable also accepts a derived `<PROVIDER>_API_KEY`.
 
-- **Google**: `google:gemini-2.0-flash-exp`, `google:gemini-2.5-pro`, `google:gemini-1.5-pro`
-- **Anthropic**: `anthropic:claude-sonnet-4-5`, `anthropic:claude-opus-4-5`, `anthropic:claude-3-5-haiku`
-- **OpenAI**: `openai:gpt-4o`, `openai:o3-mini`, `openai:gpt-4o-mini`
-- **Mistral**: `mistral:mistral-large-latest`, `mistral:pixtral-large-latest`
+### Model Format
+
+`provider:model`, e.g. `anthropic:claude-sonnet-5`. The legacy `provider/model` form still works.
+Only the first separator splits, so ids containing their own separators survive intact —
+`openrouter:anthropic/claude-sonnet-5` and `ollama:qwen3-coder:30b` both parse correctly.
+
+### Local and private providers
+
+models.dev only catalogues hosted services. Declare anything else — Ollama, vLLM, LM Studio, an
+internal gateway — under `providers` in `~/.codemon/config.json`, and it is driven through the
+OpenAI-compatible client:
+
+```json
+{
+  "providers": {
+    "ollama": {
+      "name": "Ollama (local)",
+      "api": "http://127.0.0.1:11434/v1",
+      "models": ["qwen3-coder:30b", "llama3.3:70b"]
+    }
+  }
+}
+```
+
+To keep a catalogued provider but point it at a proxy, set `endpoints` instead — its model list
+and metadata are retained:
+
+```json
+{ "endpoints": { "anthropic": "http://localhost:8080/v1" } }
+```
 
 ---
 
@@ -148,7 +192,7 @@ bun run dev -- --model anthropic:claude-sonnet-4-5
 
 ### 2. Autonomous Task Execution (`yolo` mode)
 ```bash
-bun run dev -- --mode yolo --model google:gemini-2.0-flash-exp
+bun run dev -- --mode yolo --model google:gemini-flash-latest
 ```
 
 ### 3. Isolated Shell Testing (`docker` sandbox)

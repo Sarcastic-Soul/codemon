@@ -12,10 +12,7 @@ const TRUNCATE_AT_PERCENT = 80;
 /** …and then drops whole turns until it fits in this share. */
 const TARGET_PERCENT = 60;
 
-/**
- * Context manager — tracks token budget and drops the oldest turns when
- * approaching the limit. Summarizing what it drops is the natural follow-on.
- */
+/** Tracks the token budget and drops the oldest turns as it fills. */
 export class ContextManager {
   private maxTokens: number;
 
@@ -33,18 +30,10 @@ export class ContextManager {
   }
 
   /**
-   * Drops the oldest complete turns when the history approaches the token
-   * limit.
-   *
-   * Cutting at a flat message count can land the boundary between an assistant
-   * message carrying `tool-call` parts and the `tool` message carrying their
-   * results. Anthropic and OpenAI both reject that shape, so the failure mode
-   * was: long sessions work until they cross the threshold, then every request
-   * 400s with an error that points at the provider rather than at the trim.
-   *
-   * A turn starts at a user message and runs up to the next one, so everything
-   * a request produced — assistant text, tool calls, tool results — moves as
-   * one unit and neither half can be orphaned.
+   * Drops the oldest complete turns as the history approaches the token limit.
+   * Cutting on whole turns (user message up to the next one) rather than a flat
+   * message count is what keeps a tool-call from being orphaned from its result,
+   * a shape both Anthropic and OpenAI reject.
    */
   maybeTruncate(messages: ModelMessage[], systemPrompt: string): ModelMessage[] {
     const stats = this.getStats(messages, systemPrompt);
