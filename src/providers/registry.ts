@@ -45,34 +45,6 @@ export function validateApiKey(
   );
 }
 
-/**
- * Build a registry over just the named providers, rather than instantiating all
- * ~185 catalogued ones. The plain-record type is also what lets
- * `languageModel()` take any `provider:model` string instead of a fixed union.
- */
-export function buildProviderRegistry(
-  providerNames: string[],
-  customKeys?: Record<string, string>,
-) {
-  const providers: Record<string, ProviderV4> = {};
-
-  for (const name of providerNames) {
-    const norm = name.toLowerCase();
-    const entry = resolveProviderEntry(norm);
-    if (!entry) continue;
-
-    const built = createProviderClient(
-      entry,
-      resolveKey(norm, customKeys) ?? "",
-      getEndpointOverride(norm),
-    );
-    if ("error" in built) continue;
-    providers[norm] = built.provider;
-  }
-
-  return createProviderRegistry<Record<string, ProviderV4>>(providers);
-}
-
 /** Create a Provider instance backed by the registry. */
 export function createRegistryProvider(
   config: ProviderConfig,

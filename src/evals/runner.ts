@@ -3,7 +3,7 @@ import * as path from "path";
 import * as os from "os";
 import { EVAL_CASES } from "./benchmarks.ts";
 import { runToCompletion, createInMemoryStore } from "../core/agent-loop.ts";
-import { getCurrentProvider, getCurrentConfig, setCurrentProvider } from "../core/provider-instance.ts";
+import { setCurrentProvider } from "../core/provider-instance.ts";
 import { createRegistryProvider } from "../providers/registry.ts";
 import { loadConfig } from "../config/defaults.ts";
 

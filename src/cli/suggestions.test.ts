@@ -377,8 +377,6 @@ describe("tool result reaches the diff view", () => {
 });
 
 describe("the frame never outgrows the terminal", () => {
-  const msg = (content: string): Message => ({ role: "assistant", content });
-
   test("the estimator agrees with what DiffView actually draws", () => {
     // These two disagreed — 12 rows estimated, 50 drawn. A frame taller than the
     // terminal makes Ink scroll instead of repaint in place, which tiled the

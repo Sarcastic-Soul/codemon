@@ -21,8 +21,10 @@
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true,
 
-    // Some stricter flags (disabled by default)
-    "noUnusedLocals": false,
+    // Catches the dead import/binding that survives a refactor. Parameters stay
+    // off: eval cases implement a shared `verify(dir, output, toolsUsed)` and
+    // legitimately ignore arguments the signature requires.
+    "noUnusedLocals": true,
     "noUnusedParameters": false,
     "noPropertyAccessFromIndexSignature": false
   }
