@@ -34,6 +34,15 @@ export interface CodemonConfig {
   sandbox: SandboxMode;
   /** Whether to build a repo index and inject it into the system prompt */
   repoIndex: boolean;
+  /**
+   * Investigate-only mode: every mutating tool is denied at the gate and the
+   * system prompt asks for a plan instead.
+   *
+   * Orthogonal to `permissionMode`, not a fourth value of it — those say how
+   * much the agent asks, this says what the agent is doing. A `safe` session
+   * and a `yolo` one can both be in plan mode, and plan mode narrows both.
+   */
+  planMode: boolean;
 }
 
 export const DEFAULTS: CodemonConfig = {
@@ -47,6 +56,7 @@ export const DEFAULTS: CodemonConfig = {
   systemPromptAppend: "",
   sandbox: "subprocess",
   repoIndex: true,
+  planMode: false,
 };
 
 /**

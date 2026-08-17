@@ -19,7 +19,7 @@ export type ParseResult =
   | { ok: false; error: string };
 
 /** Flags that must be followed by a value: `--flag value` or `--flag=value`. */
-const VALUE_FLAGS = ["region", "mode", "model", "sandbox"] as const;
+const VALUE_FLAGS = ["region", "mode", "model", "sandbox", "max-turns"] as const;
 
 /** Flags whose value is optional — `--audit` and `--audit <id>` are both valid. */
 const OPTIONAL_VALUE_FLAGS = ["audit"] as const;
@@ -34,7 +34,25 @@ const BOOLEAN_FLAGS = [
   "rewind",
   "sessions",
   "eval",
+  "plan",
+  "json",
 ] as const;
+
+/** Subcommands recognised in the first positional slot. */
+export const SUBCOMMANDS = ["run"] as const;
+export type Subcommand = (typeof SUBCOMMANDS)[number];
+
+/**
+ * The subcommand and its prompt, or null for the interactive TUI.
+ *
+ * `codemon run "fix the failing test"` — everything after `run` joins into one
+ * prompt, so an unquoted sentence works as well as a quoted one.
+ */
+export function subcommandOf(args: ParsedArgs): { name: Subcommand; rest: string } | null {
+  const head = args.positional[0];
+  if (head === undefined || !(SUBCOMMANDS as readonly string[]).includes(head)) return null;
+  return { name: head as Subcommand, rest: args.positional.slice(1).join(" ").trim() };
+}
 
 const KNOWN_FLAGS = new Set<string>([
   ...VALUE_FLAGS,
@@ -57,12 +75,14 @@ export const USAGE = `
 CODEMON — Your AI Coding Partner
 
 Usage: codemon [options]
+       codemon run "<prompt>" [options]      Headless: one prompt, no TUI
 
 Options:
   --region <path>       Project root directory (default: cwd)
   --mode <mode>         Permission mode: ${MODE_LIST} (default: standard)
   --model <model>       Model: provider:model-name  (e.g. anthropic:claude-sonnet-5)
   --sandbox <mode>      Sandbox mode: ${SANDBOX_LIST}  (default: subprocess)
+  --plan                Start in plan mode: investigate only, change nothing
   --no-index            Skip repo indexing on startup
   --continue            Resume the most recent session for this region
   --rewind              Restore all files to their state before the last session
@@ -71,6 +91,12 @@ Options:
   --eval                Run the automated eval suite
   --debug               Enable debug logging to ~/.codemon/debug.log
   --help                Show this help
+
+Headless (codemon run):
+  --json                Emit one JSON agent event per line instead of prose
+  --max-turns <n>       Cap tool-calling turns for the run
+  Exit codes: 0 done · 1 config/stream error · 2 turn budget hit · 3 tool denied
+  A prompt may also come from stdin:  echo "summarise the diff" | codemon run
 
   A flag taking a value accepts either form: --model x or --model=x. Use the
   --flag=value form for a value that starts with a dash.
@@ -86,6 +112,10 @@ Configuration (highest precedence wins):
 TUI Slash Commands (type while in interactive mode):
 ${SLASH_COMMANDS}
   Ctrl+C also exits.
+
+  Built-ins only — this text is generated before --region is resolved, so
+  project commands in .codemon/commands/*.md are not listed here. Run /help
+  inside the TUI to see those too.
 
 Providers (BYOK):
   ~185 providers come from the models.dev catalog, refreshed in the background.
@@ -131,6 +161,12 @@ function validate(flags: Record<string, FlagValue>): string | null {
   }
   if (typeof flags.region === "string" && flags.region.trim() === "") {
     return "--region needs a value — no value given.";
+  }
+  if (flags["max-turns"] !== undefined) {
+    const n = Number(flags["max-turns"]);
+    if (!Number.isFinite(n) || n < 1) {
+      return `--max-turns needs a positive whole number, got "${String(flags["max-turns"])}"`;
+    }
   }
   return null;
 }
