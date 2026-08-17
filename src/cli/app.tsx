@@ -1,8 +1,8 @@
-import React, { useState, useCallback, useEffect, useMemo } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { Box, Text, useInput, useApp } from "ink";
 import TextInput from "ink-text-input";
 import { ChatView, maxScrollOffset } from "./components/ChatView.tsx";
-import { ToolCallView, type ToolCallEntry } from "./components/ToolCallView.tsx";
+import { ToolCallView, toolCallViewRows, type ToolCallEntry } from "./components/ToolCallView.tsx";
 import { DiffView, diffViewRows, DIFF_MAX_LINES, type DiffEntry } from "./components/DiffView.tsx";
 import { PermissionPrompt } from "./components/PermissionPrompt.tsx";
 import { SidePanel } from "./components/SidePanel.tsx";
@@ -10,6 +10,8 @@ import { ConnectorModal, type ConnectorResult } from "./components/ConnectorModa
 import { runAgent } from "../core/agent-loop.ts";
 import { getSession, getMessages, updateSessionModel } from "../core/session.ts";
 import { ContextManager } from "../core/context-manager.ts";
+import { buildSystemPrompt } from "../core/system-prompt.ts";
+import { getTodos, onTodosChanged, type Todo } from "../core/todo-store.ts";
 import { loadAgentRules } from "../config/load-agent-rules.ts";
 import { buildRepoIndex, formatRepoIndex } from "../core/repo-indexer.ts";
 import { createRegistryProvider, validateApiKey } from "../providers/registry.ts";
@@ -23,6 +25,7 @@ import { ThinkingIndicator } from "./components/ThinkingIndicator.tsx";
 import { ReasoningView } from "./components/ReasoningView.tsx";
 import { useTerminalSize } from "./hooks/use-terminal-size.ts";
 import { computeLayout, SIDE_PANEL_WIDTH } from "./layout.ts";
+import { stampFrame } from "./debug-frames.ts";
 import { buildFileIndex } from "./file-index.ts";
 import {
   detectCompletion,
@@ -30,7 +33,6 @@ import {
   commandSuggestions,
   rankSuggestions,
   expandMentions,
-  SUGGESTION_WINDOW,
 } from "./suggestions.ts";
 
 export interface ChatMessage {
@@ -174,16 +176,37 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
     try { return getSession().id; } catch { return undefined; }
   });
 
+  // Plan mode is its own axis, not a fourth permission mode: `permissionMode`
+  // says how much the agent asks, this says what it is doing. Seeded from the
+  // config so `--plan` works, and toggled at runtime by `/plan`.
+  const [planMode, setPlanMode] = useState<boolean>(config.planMode);
+
+  /** The agent's checklist, mirrored out of the tool's store for the panel. */
+  const [todos, setTodos] = useState<Todo[]>(() => getTodos());
+
   const [systemPrompt, setSystemPrompt] = useState<string>(() =>
-    buildBaseSystemPrompt(config, projectRoot)
+    buildBaseSystemPrompt(config, projectRoot, config.planMode)
   );
+
+  // The repo index is appended to the prompt asynchronously, so a plan-mode
+  // toggle has to rebuild from the base and let that effect re-append rather
+  // than trying to patch the string in place.
+  const [repoIndexText, setRepoIndexText] = useState<string>("");
+
+  useEffect(() => {
+    const base = buildBaseSystemPrompt(config, projectRoot, planMode);
+    setSystemPrompt(repoIndexText ? `${base}\n\n${repoIndexText}` : base);
+  }, [planMode, repoIndexText, config, projectRoot]);
+
+  // The tool writes to a module-level store; this is the only bridge into React.
+  useEffect(() => onTodosChanged(setTodos), []);
 
   // Context occupancy, as the agent loop measures it. Seeded here so a resumed
   // session shows its real load before the first turn reports one.
   const [contextTokens, setContextTokens] = useState(() => {
     try {
       const manager = new ContextManager(effectiveContextTokens(config));
-      return manager.getStats(getMessages(), buildBaseSystemPrompt(config, projectRoot))
+      return manager.getStats(getMessages(), buildBaseSystemPrompt(config, projectRoot, config.planMode))
         .estimatedTokens;
     } catch {
       return 0;
@@ -198,8 +221,18 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
   // Memoized because `handleSubmit` depends on it: rebuilt every render, it
   // gave the callback a new identity on every keystroke and memoized nothing.
   const commandContext = useMemo(
-    () => ({ exit, addMessage, setMessages, setShowConnectorModal }),
-    [exit, addMessage],
+    () => ({
+      exit,
+      addMessage,
+      setMessages,
+      setShowConnectorModal,
+      provider: activeProvider,
+      config,
+      projectRoot,
+      planMode,
+      setPlanMode,
+    }),
+    [exit, addMessage, activeProvider, config, projectRoot, planMode],
   );
 
   // Handle provider/model selection from ConnectorModal
@@ -277,50 +310,36 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
     maybeRefreshCatalog().catch(() => {});
   }, []);
 
-  // Build repo index asynchronously if enabled
+  // Build repo index asynchronously if enabled. Stored separately from the
+  // prompt rather than concatenated into it, so a /plan toggle can rebuild the
+  // base without losing the index or duplicating it.
   useEffect(() => {
     if (!config.repoIndex) return;
     let isMounted = true;
     buildRepoIndex(projectRoot)
       .then((index) => {
         if (!isMounted) return;
-        const formattedIndex = formatRepoIndex(index);
-        setSystemPrompt((base) => `${base}\n\n${formattedIndex}`);
+        setRepoIndexText(formatRepoIndex(index));
       })
       .catch(() => {});
     return () => { isMounted = false; };
   }, [config.repoIndex, projectRoot]);
 
-  const handleSubmit = useCallback(
-    async (userText: string) => {
-      // Enter belongs to the popup while it is open — completing a path should
-      // not also fire the message off half-written.
-      if (acceptSuggestion()) return;
-
-      const trimmed = userText.trim();
-      if (!trimmed || isThinking) return;
-
-      // Try slash command dispatch first
-      if (trimmed.startsWith("/")) {
-        setInput("");
-        const matched = dispatchCommand(trimmed, commandContext);
-        if (matched) return;
-        // Unknown slash command — show hint
-        addMessage({
-          role: "assistant",
-          content: `Unknown command: \`${trimmed.split(" ")[0]}\`. Type **/help** to see all commands.`,
-        });
-        return;
-      }
-
+  /**
+   * Run one agent turn.
+   *
+   * Split out of `handleSubmit` because a slash command can now ask for a turn
+   * of its own — `/init` and every custom command return `{ submit }`, and the
+   * text they submit is not what the user typed.
+   */
+  const runTurn = useCallback(
+    async (promptText: string, displayText: string) => {
       if (!activeProvider) {
-        setInput("");
         addMessage({ role: "assistant", content: "No API key configured. Opening Provider & Model Connector..." });
         setShowConnectorModal(true);
         return;
       }
 
-      setInput("");
       setIsThinking(true);
       setScrollOffset(0);
       setStreamingText("");
@@ -329,10 +348,7 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
       setLiveToolCalls([]);
       setLiveDiffs([]);
 
-      // The transcript keeps the `@path` the user typed; the model gets the
-      // path as a plain backticked reference it can hand to the file tools.
-      const promptText = expandMentions(userText);
-      const userMsg: ChatMessage = { role: "user", content: userText };
+      const userMsg: ChatMessage = { role: "user", content: displayText };
       setMessages((prev) => [...prev, userMsg]);
 
       let assistantBuffer = "";
@@ -354,7 +370,7 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
       const engine = runAgent(
         promptText,
         activeProvider,
-        { ...config, model: activeModel, maxContextTokens: contextBudget },
+        { ...config, model: activeModel, maxContextTokens: contextBudget, planMode },
         systemPrompt,
       );
 
@@ -422,6 +438,17 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
             setContextTokens(event.estimatedTokens);
             break;
 
+          // Said out loud rather than left as a silently shrinking meter, which
+          // reads as a bug rather than as the feature it is.
+          case "compaction":
+            addMessage({
+              role: "assistant",
+              content:
+                `↺ Compacted **${event.droppedMessages}** earlier messages into a summary ` +
+                `(~${event.summaryTokens} tokens). Nothing was lost from the session log.`,
+            });
+            break;
+
           case "permission-required":
             await new Promise<void>((resolve) => {
               setPendingPermission({
@@ -460,7 +487,50 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
       setLiveDiffs([]);
       setIsThinking(false);
     },
-    [isThinking, activeProvider, activeModel, config, contextBudget, systemPrompt, commandContext, addMessage, acceptSuggestion],
+    [activeProvider, activeModel, config, contextBudget, systemPrompt, planMode, addMessage],
+  );
+
+  const handleSubmit = useCallback(
+    async (userText: string) => {
+      // Enter belongs to the popup while it is open — completing a path should
+      // not also fire the message off half-written.
+      if (acceptSuggestion()) return;
+
+      const trimmed = userText.trim();
+      if (!trimmed || isThinking) return;
+
+      // Try slash command dispatch first
+      if (trimmed.startsWith("/")) {
+        setInput("");
+        const { matched, result } = await dispatchCommand(trimmed, commandContext);
+
+        if (!matched) {
+          addMessage({
+            role: "assistant",
+            content: `Unknown command: \`${trimmed.split(" ")[0]}\`. Type **/help** to see all commands.`,
+          });
+          return;
+        }
+
+        if (result && "notice" in result) {
+          addMessage({ role: "assistant", content: result.notice });
+          return;
+        }
+
+        // The command expanded into a prompt. The transcript keeps what the
+        // user typed; the model gets the expansion.
+        if (result && "submit" in result) {
+          await runTurn(result.submit, trimmed);
+        }
+        return;
+      }
+
+      setInput("");
+      // The transcript keeps the `@path` the user typed; the model gets the
+      // path as a plain backticked reference it can hand to the file tools.
+      await runTurn(expandMentions(userText), userText);
+    },
+    [isThinking, commandContext, addMessage, acceptSuggestion, runTurn],
   );
 
   useInput((_input, key) => {
@@ -516,7 +586,16 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
   // The banner owns the empty screen; the first message replaces it for good.
   const showBanner = messages.length === 0 && streamingText === "" && !isThinking;
 
-  const liveDiffRows = liveDiffs.reduce((n, d) => n + diffViewRows(d.unified), 0);
+  // When several files change in one turn, share the remaining rows out rather
+  // than letting the first diff eat the screen. Computed before the layout so
+  // the reservation below is made against the cap the diffs will actually draw
+  // at, not against the default.
+  const liveDiffMaxLines =
+    liveDiffs.length > 0
+      ? Math.max(4, Math.min(DIFF_MAX_LINES, Math.floor((rows - 12) / liveDiffs.length) - 4))
+      : DIFF_MAX_LINES;
+
+  const liveDiffRows = liveDiffs.reduce((n, d) => n + diffViewRows(d.unified, liveDiffMaxLines), 0);
 
   // All of the screen arithmetic lives in computeLayout(), which is unit-tested
   // against the invariant that matters: the frame never exceeds the terminal.
@@ -527,16 +606,28 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
     suggestionCount: suggestions.length,
     isThinking,
     hasReasoning: reasoningText !== "",
-    toolCallCount: liveToolCalls.length,
+    toolCallRows: toolCallViewRows(liveToolCalls),
     diffRows: liveDiffRows,
   });
 
-  // When several files change in one turn, share the remaining rows out rather
-  // than letting the first diff eat the screen.
-  const liveDiffMaxLines =
-    liveDiffs.length > 0
-      ? Math.max(4, Math.min(DIFF_MAX_LINES, Math.floor((rows - 12) / liveDiffs.length) - 4))
-      : DIFF_MAX_LINES;
+  // Debug only, and a no-op unless CODEMON_DEBUG_FRAMES is set: records what the
+  // layout believed, so an overflowing frame in the log can be read against the
+  // state that produced it.
+  stampFrame({
+    rows,
+    columns,
+    paneRows,
+    chatRows,
+    isThinking,
+    streamChars: streamingText.length,
+    messages: messages.length,
+    toolCallRows: toolCallViewRows(liveToolCalls),
+    diffRows: liveDiffRows,
+    reasoning: reasoningText !== "",
+    suggestions: suggestions.length,
+    popupVisibleRows,
+    scrollOffset,
+  });
 
   return (
     <Box flexDirection="row" width={columns} height={rows}>
@@ -613,16 +704,26 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
               maxVisibleRows={popupVisibleRows}
             />
 
-            <Box borderStyle="single" borderColor={isThinking ? "yellow" : "cyan"} paddingX={1}>
-              <Text color={isThinking ? "yellow" : "cyan"}>
-                {isThinking ? "" : "❯ "}
+            {/* The border carries plan mode too, so a read-only session is
+                never ambiguous from the prompt the user is typing at. */}
+            <Box
+              borderStyle="single"
+              borderColor={isThinking ? "yellow" : planMode ? "magenta" : "cyan"}
+              paddingX={1}
+            >
+              <Text color={isThinking ? "yellow" : planMode ? "magenta" : "cyan"}>
+                {isThinking ? "" : planMode ? "~ " : "❯ "}
               </Text>
               <TextInput
                 value={input}
                 onChange={handleInputChange}
                 onSubmit={handleSubmit}
                 placeholder={
-                  isThinking ? "thinking…" : "message Codemon  (/ commands · @ files)"
+                  isThinking
+                    ? "thinking…"
+                    : planMode
+                    ? "plan mode — ask for a plan  (/plan to exit)"
+                    : "message Codemon  (/ commands · @ files)"
                 }
               />
             </Box>
@@ -637,6 +738,8 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
           model={activeModel}
           region={projectRoot}
           permissionMode={config.permissionMode}
+          planMode={planMode}
+          todos={todos}
           contextTokens={contextTokens}
           maxContextTokens={contextBudget}
           spentTokens={spentTokens}
@@ -650,42 +753,19 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
   );
 }
 
-function buildBaseSystemPrompt(config: CodemonConfig, projectRoot: string): string {
-  const agentRules = loadAgentRules(projectRoot);
-
-  const parts = [
-    `You are Codemon, an expert AI coding assistant. You are paired with a developer working in the "${projectRoot.split("/").pop()}" project.`,
-    "",
-    "## Capabilities",
-    "You have the following tools available:",
-    "- **read_file**: Read any file in the project",
-    "- **write_file**: Create or overwrite a file",
-    "- **edit_file**: Make targeted edits to a file (preferred over write_file for existing files)",
-    "- **list_dir**: Explore the project directory tree",
-    "- **bash**: Run shell commands (git, npm, bun, tests, etc.)",
-    "- **grep**: Search for patterns across the codebase",
-    "- **glob**: Find files by pattern",
-    "- **spawn_subagent**: Delegate focused sub-tasks to fresh sub-agent instances",
-    "",
-    "## Guidelines",
-    "- Always read files before editing them",
-    "- Prefer edit_file over write_file for existing files",
-    "- Run tests after making changes when possible",
-    "- Use spawn_subagent for large codebase exploration or clean sub-tasks",
-    "- Be concise in your responses — let the tools do the showing",
-    "- When you're unsure about something, ask rather than guess",
-    "",
-    `## Working Directory`,
-    `Project root: ${projectRoot}`,
-  ];
-
-  if (agentRules) {
-    parts.push("", agentRules);
-  }
-
-  if (config.systemPromptAppend) {
-    parts.push("", config.systemPromptAppend);
-  }
-
-  return parts.join("\n");
+/**
+ * Thin wrapper over `buildSystemPrompt`, which lives in core/ so the headless
+ * runner produces the same agent this one does.
+ */
+function buildBaseSystemPrompt(
+  config: CodemonConfig,
+  projectRoot: string,
+  planMode = false,
+): string {
+  return buildSystemPrompt({
+    config,
+    projectRoot,
+    agentRules: loadAgentRules(projectRoot),
+    planMode,
+  });
 }
