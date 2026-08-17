@@ -48,7 +48,7 @@ interactively — it's saved to `~/.codemon/config.json` with `0600` permissions
 | | |
 |---|---|
 | ⚡ **Streaming TUI** | Real-time token streaming, live tool progress, inline diff previews, and permission prompts — all in an Ink-powered React terminal UI. |
-| 🔑 **BYOK, four providers** | Google Gemini, Anthropic Claude, OpenAI, and Mistral. Swap providers or models mid-session with `/connector`; keys never leave your machine. |
+| 🔑 **BYOK, ~185 providers** | Providers and models come from the live [models.dev](https://models.dev) catalog rather than a hardcoded list, so a new model works the day it ships. Swap provider or model mid-session with `/connector`; keys never leave your machine. |
 | 🔴 **Poké Ball permission gate** | Every move is classified `read` / `write` / `bash` / `network` and checked against your mode before it runs. "Always allow" is remembered for the session, and every decision is written to an audit log. |
 | 🧰 **10 moves** | `read_file`, `write_file`, `edit_file` (fuzzy diff matching), `list_dir`, `bash`, `grep`, `glob`, `spawn_subagent`, `todo_write`, `web_fetch` — plus anything your MCP servers add. |
 | 📝 **Plan mode** | `--plan` or `/plan`: the agent reads, greps and runs read-only shell commands, but every write and remote call is denied at the gate — including tools you already granted "always allow". Orthogonal to your permission mode, so it narrows `safe` and `yolo` alike. |
@@ -68,8 +68,9 @@ interactively — it's saved to `~/.codemon/config.json` with `0600` permissions
 
 ```bash
 codemon                                     # start in the current directory
-codemon --model anthropic:claude-sonnet-4-5 # pick a provider:model
+codemon --model anthropic:claude-sonnet-5   # pick a provider:model
 codemon --mode yolo                         # auto-approve every move
+codemon --plan                              # investigate only, change nothing
 codemon --region /path/to/project           # work in another directory
 codemon --continue                          # resume the most recent session
 codemon --rewind                            # restore files from the last session
@@ -81,6 +82,29 @@ codemon --eval                              # run the benchmark suite
 codemon --debug                             # log to ~/.codemon/debug.log
 ```
 
+### Headless runs
+
+```bash
+codemon run "summarise what changed on this branch"   # answer on stdout
+codemon run "fix the failing test" --max-turns 20     # cap the tool budget
+codemon run "review the diff" --json                  # one JSON event per line
+echo "explain this error" | codemon run               # prompt from stdin
+```
+
+Only the assistant's reply goes to stdout, so `codemon run … > out.md` captures
+the answer and nothing else; tool activity goes to stderr. The exit code says
+what happened without anyone having to grep prose for it:
+
+| Code | Meaning |
+|---|---|
+| `0` | Finished |
+| `1` | Config or stream error |
+| `2` | Hit the `--max-turns` budget |
+| `3` | A tool needed permission and was denied |
+
+A run that needs confirmation is **denied**, never auto-approved — nothing is
+watching to answer the prompt. Pass `--mode yolo` to opt in explicitly.
+
 > **Running from source?** Replace `codemon` with `bun run dev --` —
 > e.g. `bun run dev -- --model google:gemini-flash-latest`.
 
@@ -89,9 +113,16 @@ codemon --debug                             # log to ~/.codemon/debug.log
 | Command | Aliases | Does |
 |---|---|---|
 | `/connector` | `/config`, `/model` | Open the provider & API key configurator |
+| `/plan` | | Toggle plan mode — investigate and propose, change nothing |
+| `/compact` | | Summarise the earlier conversation to free up context |
+| `/init` | | Explore the project and write a `codemon.md` for it |
 | `/help` | `/?` | List every slash command |
 | `/clear` | `/cls` | Clear the chat history display |
 | `/exit` | `/quit`, `/q` | Leave the battle (so does `Ctrl+C`) |
+
+Any `.codemon/commands/*.md` file joins this list as `/<filename>`, with
+`$ARGUMENTS` substituted from the rest of the line. A custom command may not
+shadow a built-in — the file is skipped rather than silently winning.
 
 ### Permission modes
 

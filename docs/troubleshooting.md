@@ -40,12 +40,120 @@ bun run dev -- --model mistral:mistral-large-latest
 
 ---
 
-## 📦 2. TypeScript & Build Issues
+## 🔌 2. MCP Server Issues
 
-### Error: `Cannot find module './registry.ts' or its corresponding type declarations`
-**Cause**: Circular type dependency resolution loop in TypeScript when loading move definitions.
+### Issue: A declared server's tools never appear
+**Cause**: Servers start in the background so a slow one cannot delay the
+prompt, and a server that fails to start is skipped rather than taking the
+session down with it. Both look identical from the chat view: nothing shows up.
 
-**Solution**: Move interface definitions out of `registry.ts` into `types.ts`. Import `ToolDefinition` directly from `src/tools/types.ts`. (This is already resolved in recent codebase builds).
+**Solution**: Run with `--debug` and check the log for the skip:
+
+```bash
+codemon --debug
+grep mcp ~/.codemon/debug.log
+```
+
+A server that failed logs `mcp: server failed to start — skipped` along with the
+reason. The usual causes are a `command` that is not on `PATH`, a missing
+argument, or an `env` entry referencing a variable that is not exported.
+
+If the server started but its tools are still absent, remember that
+`buildToolSet()` runs once per turn — a server finishing its handshake after the
+first frame is offered on the **next** turn, not the current one.
+
+### Issue: `${VAR}` in an MCP `env` block arrives empty
+**Cause**: Unset variables expand to the empty string, deliberately. The
+alternative is passing the literal `${VAR}` through to the server, which
+authenticates as that string instead of failing — a much worse outcome, since it
+fails somewhere far from the mistake.
+
+**Solution**: Export the variable before launching, or put the value directly in
+the config file. Note that `~/.codemon/config.json` is `0600`; a project
+`codemon.json` is committed with the repo, so never put a secret there.
+
+### Issue: An MCP tool prompts for permission every time
+**Cause**: Remote tools default to the `network` level, which is confirmed in
+every mode including `standard`. This is intentional — `standard` auto-allows
+`write`, so filing remote tools there would let an unclassified one run silently
+in the default mode.
+
+**Solution**: Give the specific tool a level under that server's `permissions`
+map, rather than lowering your whole mode:
+
+```jsonc
+{
+  "mcpServers": {
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "permissions": { "get_file_contents": "read" }
+    }
+  }
+}
+```
+
+### Issue: A server stops responding after a long session
+**Cause**: Codemon captures each server's stderr rather than letting it inherit
+the terminal, since a server logging mid-frame would paint over the TUI. A
+server that writes a very large volume to stderr can fill that buffer.
+
+**Solution**: Quiet the server's own logging if it has a verbosity flag, and
+restart the session. This needs roughly 80KB of server stderr to trigger, so
+most servers never reach it.
+
+---
+
+## 🤖 3. Headless Run Issues (`codemon run`)
+
+### Issue: The run exits `3` and reports a denied tool
+**Cause**: Not a bug — a run that needs confirmation is denied, because nothing
+is watching to answer the prompt. A git hook that started running `rm` because
+nobody was looking is exactly what this prevents.
+
+**Solution**: If the run genuinely should be allowed to write or execute, opt in
+explicitly:
+
+```bash
+codemon run "fix the failing test" --mode yolo
+```
+
+### Issue: The run exits `2` with a partial answer
+**Cause**: It hit the `--max-turns` budget mid-task.
+
+**Solution**: Raise the cap. Exit `2` is deliberately distinct from success so a
+CI step can tell "finished" from "ran out of room".
+
+### Issue: Parsing the output is picking up tool noise
+**Cause**: Prose tool activity goes to stderr and the reply to stdout, but a
+shell that merges them (`2>&1`) loses that separation.
+
+**Solution**: Redirect only stdout, or use the event stream:
+
+```bash
+codemon run "summarise the diff" > answer.md      # reply only
+codemon run "summarise the diff" --json | jq -c   # one JSON event per line
+```
+
+### Issue: A run with `--plan` exits `0` even though everything was blocked
+**Cause**: Plan mode denials surface as tool errors, not permission requests, so
+they do not set the denied exit code. The run genuinely completed — it just
+could not change anything, which is what plan mode is for.
+
+**Solution**: Do not use `--plan` in a CI step whose purpose is to make changes.
+Use it for review and analysis jobs, where reading the answer is the point.
+
+---
+
+## 📦 4. TypeScript & Build Issues
+
+### Error: `bun install` and `npm install` disagree, or a lockfile conflict appears
+**Cause**: Bun is the package manager here and `bun.lock` is the lockfile. An
+`npm install` writes a `package-lock.json` that can resolve different versions
+than the ones CI installs, so the build stops matching what was tested.
+
+**Solution**: `package-lock.json`, `yarn.lock` and `pnpm-lock.yaml` are
+gitignored. If one appeared locally, delete it and re-run `bun install`.
 
 ### Error: `Could not resolve: "react-devtools-core"` during `bun run build`
 **Cause**: Missing optional development dependency required by `ink` when building standalone compiled binaries with Bun.
@@ -57,7 +165,7 @@ bun add -d react-devtools-core
 
 ---
 
-## 🐳 3. Docker Sandbox Issues (`--sandbox docker`)
+## 🐳 5. Docker Sandbox Issues (`--sandbox docker`)
 
 ### Error: `Docker daemon is not running` or `Cannot connect to the Docker daemon`
 **Cause**: Docker service is stopped or the current user lacks permission to access `/var/run/docker.sock`.
@@ -80,7 +188,7 @@ bun add -d react-devtools-core
 
 ---
 
-## 💾 4. Pokédex SQLite Database & Session Issues
+## 💾 6. Pokédex SQLite Database & Session Issues
 
 ### Issue: Want to undo file edits from a previous session
 **Solution**: Use the `--rewind` flag to restore files to their pre-session state recorded in SQLite checkpoints:
@@ -109,7 +217,7 @@ bun run dev -- --rewind
 
 ---
 
-## 🐞 5. Enabling Debug Logs
+## 🐞 7. Enabling Debug Logs
 
 If you encounter unexpected agent behavior or tool call failures, run Codemon with the `--debug` flag:
 
