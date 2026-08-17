@@ -1,5 +1,4 @@
 import type { PermissionLevel } from "../tools/types.ts";
-import type { CodemonConfig } from "../config/defaults.ts";
 import { logger } from "../utils/logger.ts";
 
 export const PERMISSION_MODES = ["safe", "standard", "yolo"] as const;
@@ -26,19 +25,22 @@ export function getRuleSet(mode: PermissionMode): RuleSet {
       return {
         autoAllow: new Set(["read"]),
         autoDeny: new Set(),
-        requireConfirm: new Set(["write", "bash"]),
+        requireConfirm: new Set(["write", "bash", "network"]),
       };
 
     case "standard":
       return {
+        // `network` is deliberately not here. A remote tool is the one class
+        // whose behaviour this machine cannot inspect, so the default mode
+        // asks about it even though it auto-allows local writes.
         autoAllow: new Set(["read", "write"]),
         autoDeny: new Set(),
-        requireConfirm: new Set(["bash"]),
+        requireConfirm: new Set(["bash", "network"]),
       };
 
     case "yolo":
       return {
-        autoAllow: new Set(["read", "write", "bash"]),
+        autoAllow: new Set(["read", "write", "bash", "network"]),
         autoDeny: new Set(),
         requireConfirm: new Set(),
       };
@@ -48,11 +50,7 @@ export function getRuleSet(mode: PermissionMode): RuleSet {
       return {
         autoAllow: new Set(),
         autoDeny: new Set(),
-        requireConfirm: new Set(["read", "write", "bash"]),
+        requireConfirm: new Set(["read", "write", "bash", "network"]),
       };
   }
-}
-
-export function getRuleSetFromConfig(config: CodemonConfig): RuleSet {
-  return getRuleSet(config.permissionMode);
 }
