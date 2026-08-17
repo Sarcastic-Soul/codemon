@@ -1,6 +1,6 @@
-import type { CommandContext } from "./index.ts";
+import type { CommandContext, SlashCommand } from "./index.ts";
 
-export const connectorCommand = {
+export const connectorCommand: SlashCommand = {
   names: ["/connector", "/config", "/model"],
   description: "Open provider & API key configurator",
   hint: "model / key",

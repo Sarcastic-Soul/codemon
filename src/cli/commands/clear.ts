@@ -1,6 +1,6 @@
-import type { CommandContext } from "./index.ts";
+import type { CommandContext, SlashCommand } from "./index.ts";
 
-export const clearCommand = {
+export const clearCommand: SlashCommand = {
   names: ["/clear", "/cls"],
   description: "Clear the current chat history display",
   hint: "clear chat",

@@ -1,6 +1,6 @@
-import type { CommandContext } from "./index.ts";
+import type { CommandContext, SlashCommand } from "./index.ts";
 
-export const exitCommand = {
+export const exitCommand: SlashCommand = {
   names: ["/exit", "/quit", "/q"],
   description: "Exit Codemon",
   hint: "quit",
