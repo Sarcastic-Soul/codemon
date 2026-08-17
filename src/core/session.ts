@@ -9,11 +9,15 @@ import {
   dbGetLastSessionForRegion,
 } from "../storage/sessions.repo.ts";
 import type { SessionTokens, StoredSession } from "../storage/sessions.repo.ts";
+import { dbGetLatestCompaction, dbSaveCompaction } from "../storage/compactions.repo.ts";
+import type { CompactionRecord } from "./message-store.ts";
 
 export interface Session {
   id: string;
   startedAt: string;
   messages: ModelMessage[];
+  /** Summary covering the history no longer sent to the provider, if any. */
+  compaction: CompactionRecord | null;
   /** Tracked apart: an agentic loop resends the whole history every turn, so
    *  prompt tokens dominate spend. */
   promptTokensUsed: number;
@@ -53,6 +57,7 @@ export function createSession(region: string, model = ""): Session {
     id: crypto.randomUUID(),
     startedAt: new Date().toISOString(),
     messages: [],
+    compaction: null,
     ...NO_TOKENS,
     region,
     model,
@@ -106,6 +111,11 @@ function adopt(row: StoredSession, region: string, model: string): Session {
     id: row.id,
     startedAt: new Date().toISOString(),
     messages: dbLoadMessages(row.id),
+    // Loaded back so a resumed session does not re-summarise turns it already
+    // paid to summarise once.
+    compaction: (() => {
+      try { return dbGetLatestCompaction(row.id); } catch { return null; }
+    })(),
     ...seedTokens(row),
     region,
     model,
@@ -173,4 +183,22 @@ export function updateSessionModel(model: string): void {
 
 export function getMessages(): ModelMessage[] {
   return getSession().messages;
+}
+
+export function getCompaction(): CompactionRecord | null {
+  try { return getSession().compaction; } catch { return null; }
+}
+
+/**
+ * Store a summary of the history up to `throughSeq`. Held in memory even if the
+ * write fails, so a read-only database costs the session persistence but not
+ * the summary it just paid a model call for.
+ */
+export function saveCompaction(record: CompactionRecord): void {
+  const session = getSession();
+  session.compaction = record;
+  try {
+    ensureSessionPersisted();
+    dbSaveCompaction(session.id, record);
+  } catch {}
 }

@@ -59,7 +59,20 @@ CREATE TABLE IF NOT EXISTS permission_decisions (
   created_at       TEXT NOT NULL
 );
 
+-- Summaries standing in for history that is no longer sent to the provider.
+-- Append-only, and deliberately a separate table rather than a rewrite of
+-- the messages table: --rewind, --audit and the checkpoint foreign keys all
+-- read message rows, so the transcript has to stay exactly as it happened.
+CREATE TABLE IF NOT EXISTS compactions (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id  TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  through_seq INTEGER NOT NULL,
+  summary     TEXT NOT NULL,
+  created_at  TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_messages_session   ON messages(session_id, seq);
+CREATE INDEX IF NOT EXISTS idx_compactions_session ON compactions(session_id, through_seq DESC);
 CREATE INDEX IF NOT EXISTS idx_decisions_session  ON permission_decisions(session_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_checkpoints_session ON checkpoints(session_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_sessions_region    ON sessions(region, last_active DESC);

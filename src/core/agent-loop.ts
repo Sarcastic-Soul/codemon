@@ -1,9 +1,18 @@
 import type { Provider, ModelMessage } from "../providers/types.ts";
 import { DEFAULTS, effectiveContextTokens, type CodemonConfig } from "../config/defaults.ts";
 import { buildToolSet, getTool } from "../tools/registry.ts";
-import { checkPermission, rememberAlways, recordUserDecision } from "../permissions/gate.ts";
+import {
+  checkPermission,
+  planModeBlocks,
+  rememberAlways,
+  recordUserDecision,
+  PLAN_MODE_DENIAL,
+} from "../permissions/gate.ts";
 import { ContextManager } from "./context-manager.ts";
-import { addMessage, updateTokenUsage, getMessages } from "./session.ts";
+import { addMessage, updateTokenUsage, getMessages, getCompaction, saveCompaction } from "./session.ts";
+import { applyCompaction, maybeCompact } from "./compaction.ts";
+import type { CompactionRecord, MessageStore, TokenUsage } from "./message-store.ts";
+import { createInMemoryStore } from "./message-store.ts";
 import { logger } from "../utils/logger.ts";
 
 /** Convert a tool execution result to the AI SDK v7 `output` schema. */
@@ -35,6 +44,13 @@ export type AgentEvent =
       percentUsed: number;
       messageCount: number;
     }
+  | {
+      // Old turns were summarised rather than dropped. Emitted so a UI can say
+      // so — a silently shrinking context meter reads as a bug.
+      type: "compaction";
+      droppedMessages: number;
+      summaryTokens: number;
+    }
   | { type: "finish"; reason: string; usage?: { promptTokens: number; completionTokens: number } }
   | { type: "error"; error: Error };
 
@@ -43,36 +59,19 @@ type UserDecision = "allow" | "deny" | "always";
 /** Finish reason yielded when the turn budget runs out. */
 export const MAX_TURNS_REASON = "max-turns";
 
-export interface TokenUsage {
-  promptTokens: number;
-  completionTokens: number;
-}
-
-/**
- * MessageStore — abstraction over message history.
- * The main agent uses the global session store; sub-agents use ephemeral stores.
- */
-export interface MessageStore {
-  getMessages(): ModelMessage[];
-  addMessage(msg: ModelMessage): void;
-  updateTokenUsage(usage: TokenUsage): void;
-}
-
-/** Create a fresh in-memory store (for sub-agents and evals) */
-export function createInMemoryStore(initialMessages: ModelMessage[] = []): MessageStore {
-  const messages: ModelMessage[] = [...initialMessages];
-  return {
-    getMessages: () => messages,
-    addMessage: (msg) => messages.push(msg),
-    updateTokenUsage: (_) => {},
-  };
-}
+// Re-exported from message-store.ts, which owns them now: compaction needs
+// MessageStore and the loop needs compaction, and importing across that pair
+// directly is a cycle.
+export type { MessageStore, TokenUsage, CompactionRecord };
+export { createInMemoryStore };
 
 /** The global session-backed store (used by the main agent) */
-const globalSessionStore: MessageStore = {
+export const globalSessionStore: MessageStore = {
   getMessages,
   addMessage,
   updateTokenUsage,
+  getCompaction,
+  saveCompaction,
 };
 
 // ─── Core agent loop (accepts any MessageStore) ───────────────────────────────
@@ -123,7 +122,23 @@ async function* _agentLoop(
     turnsUsed++;
 
     const rawMessages = store.getMessages();
-    const messages = contextManager.maybeTruncate(rawMessages, systemPrompt);
+    const truncation = contextManager.plan(rawMessages, systemPrompt);
+
+    // Summarise before dropping. `maybeCompact` returns rather than throws on
+    // failure, so a dead summariser degrades to the old lossy truncation
+    // instead of taking the turn down with it.
+    if (truncation.needsTruncation) {
+      const outcome = await maybeCompact(store, contextManager, systemPrompt, provider, config);
+      if (outcome.compacted) {
+        yield {
+          type: "compaction",
+          droppedMessages: outcome.droppedMessages,
+          summaryTokens: outcome.summaryTokens,
+        };
+      }
+    }
+
+    const messages = applyCompaction(rawMessages, truncation.keepFrom, store.getCompaction());
 
     // Measured on what is actually being sent, so a trim shows up as the number
     // dropping rather than as nothing at all.
@@ -237,11 +252,28 @@ async function* _agentLoop(
         continue;
       }
 
-      const decision = checkPermission(tc.toolName, toolDef.permissionLevel, config.permissionMode, tc.args);
+      const decision = checkPermission(
+        tc.toolName,
+        toolDef.permissionLevel,
+        config.permissionMode,
+        tc.args,
+        { planMode: config.planMode },
+      );
 
       if (decision === "deny") {
-        toolResults.push({ type: "tool-result", toolCallId: tc.toolCallId, toolName: tc.toolName, output: { type: "json", value: { error: "Blocked by permission gate (permission denied)" } } });
-        yield { type: "tool-error", toolCallId: tc.toolCallId, toolName: tc.toolName, error: "Blocked by permission gate" };
+        // A plan-mode block gets its own message. "Blocked by permission gate"
+        // reads as a misconfiguration and the model retries around it; naming
+        // plan mode is what makes it write the plan instead.
+        const planBlock = config.planMode
+          ? planModeBlocks(toolDef.permissionLevel, tc.args)
+          : { blocked: false as const, reason: undefined };
+
+        const error = planBlock.blocked
+          ? `${PLAN_MODE_DENIAL}${planBlock.reason ? ` (${planBlock.reason})` : ""}`
+          : "Blocked by permission gate (permission denied)";
+
+        toolResults.push({ type: "tool-result", toolCallId: tc.toolCallId, toolName: tc.toolName, output: { type: "json", value: { error } } });
+        yield { type: "tool-error", toolCallId: tc.toolCallId, toolName: tc.toolName, error };
         continue;
       }
 
