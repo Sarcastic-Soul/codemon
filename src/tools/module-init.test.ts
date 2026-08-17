@@ -50,10 +50,17 @@ describe("module initialization", () => {
   }
 
   test("the registry exposes every move once loaded", async () => {
-    const { toolRegistry } = await import("./registry.ts");
+    const { toolRegistry, BUILTIN_TOOL_NAMES } = await import("./registry.ts");
 
-    expect([...toolRegistry.keys()].sort()).toEqual(
-      ["bash", "edit_file", "glob", "grep", "list_dir", "read_file", "spawn_subagent", "write_file"],
-    );
+    const expected = [
+      "bash", "edit_file", "glob", "grep", "list_dir",
+      "read_file", "spawn_subagent", "todo_write", "web_fetch", "write_file",
+    ];
+
+    // Asserted against the built-in set rather than the whole registry: MCP
+    // servers register into the same map at runtime, so the registry is no
+    // longer a fixed list.
+    expect([...BUILTIN_TOOL_NAMES].sort()).toEqual(expected);
+    expect([...toolRegistry.keys()].sort()).toEqual(expected);
   });
 });

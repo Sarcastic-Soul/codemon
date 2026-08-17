@@ -4,10 +4,34 @@ import { getProjectRoot } from "../sandbox/path-jail.ts";
 import type { ToolDefinition } from "./types.ts";
 
 /**
- * What a sub-agent may use. `spawn_subagent` is deliberately absent — that
+ * Built-ins a sub-agent may use. `spawn_subagent` is deliberately absent — that
  * omission is what caps nesting at depth 1.
+ *
+ * No longer the whole story: MCP tools register at runtime and are available to
+ * sub-agents too, so the live set is computed in `subagentToolNames()`. This
+ * stays as the fallback for when the registry cannot be read.
  */
 export const AVAILABLE_TOOLS = ["read_file", "list_dir", "grep", "glob", "bash", "edit_file", "write_file"] as const;
+
+/** Tools a sub-agent may never have, whatever the registry says. */
+const NEVER_DELEGATED = new Set(["spawn_subagent", "todo_write"]);
+
+/**
+ * Every tool a sub-agent may use right now.
+ *
+ * Read from the live registry rather than a const tuple: MCP tools appear after
+ * startup, and a `z.enum` frozen at module load both hides them from sub-agents
+ * and — worse — is what the model sees as the list of legal values.
+ */
+async function subagentToolNames(): Promise<string[]> {
+  try {
+    // Imported lazily to break registry → spawn-subagent → registry.
+    const { listToolNames } = await import("./registry.ts");
+    return listToolNames().filter((n) => !NEVER_DELEGATED.has(n));
+  } catch {
+    return [...AVAILABLE_TOOLS];
+  }
+}
 
 const schema = z.object({
   task: z
@@ -22,10 +46,10 @@ const schema = z.object({
       "Optional additional context to inject (e.g. file contents, prior search results) so the sub-agent doesn't need to re-fetch them.",
     ),
   allowed_tools: z
-    .array(z.enum(AVAILABLE_TOOLS))
+    .array(z.string())
     .optional()
     .describe(
-      "Restrict which tools the sub-agent can use. Defaults to all tools. Example: ['read_file', 'grep'] for a read-only search task.",
+      "Restrict which tools the sub-agent can use. Defaults to every tool except spawn_subagent. Unknown names are ignored. Example: ['read_file', 'grep'] for a read-only search task.",
     ),
   max_tokens: z
     .number()
@@ -73,9 +97,18 @@ The sub-agent runs under the same permission mode as this session and cannot spa
       .filter(Boolean)
       .join("\n");
 
-    // Always pass a filter: the agent loop enforces it at execution, and
-    // `AVAILABLE_TOOLS` omitting `spawn_subagent` is what caps nesting.
-    const toolFilter = new Set<string>(allowed_tools ?? AVAILABLE_TOOLS);
+    // Validated here rather than in the schema so the list can change at
+    // runtime. A requested name that is not currently registered is dropped
+    // rather than rejected — a stale name should narrow the sub-agent, not
+    // fail the delegation outright.
+    const available = await subagentToolNames();
+    const requested = allowed_tools?.filter((n) => available.includes(n));
+
+    // Always pass a filter: the agent loop enforces it at execution, and the
+    // omission of `spawn_subagent` from `available` is what caps nesting.
+    const toolFilter = new Set<string>(
+      requested && requested.length > 0 ? requested : available,
+    );
 
     // Imported here, not at the top, to break the import cycle
     // registry → spawn-subagent → agent-loop → registry.
