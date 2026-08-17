@@ -25,7 +25,14 @@ export OPENAI_API_KEY="your-api-key"
 
 # Mistral
 export MISTRAL_API_KEY="your-api-key"
+
+# OpenRouter — one key, hundreds of models
+export OPENROUTER_API_KEY="your-api-key"
 ```
+
+Each provider's key variable comes from the catalog, not from a list in the
+source, so `/connector` is the authoritative answer for any provider not shown
+here — it names the exact variable the one you picked expects.
 
 ### Error: `Unknown model format` or `Provider not supported`
 **Cause**: The `--model` flag string did not follow the required `provider:model-name` format.
@@ -33,10 +40,25 @@ export MISTRAL_API_KEY="your-api-key"
 **Solution**: Ensure your model flag uses a valid provider prefix:
 ```bash
 bun run dev -- --model google:gemini-flash-latest
-bun run dev -- --model anthropic:claude-sonnet-4-5
+bun run dev -- --model anthropic:claude-sonnet-5
 bun run dev -- --model openai:gpt-5.1
-bun run dev -- --model mistral:mistral-large-latest
+bun run dev -- --model openrouter:anthropic/claude-sonnet-5
 ```
+
+### Issue: A model you know exists is not offered by `/connector`
+**Cause**: Providers and models come from the [models.dev](https://models.dev)
+catalog. A snapshot ships inside the binary so a fresh or offline install works
+immediately, and the live catalog refreshes in the background once a day — so a
+model released since your snapshot is missing until that refresh lands.
+
+**Solution**: It usually resolves itself on the next launch. `--model` never
+validates against the catalog — the string is only split into provider and
+model — so naming the model explicitly works in the meantime.
+
+One side effect is worth knowing: the context window also comes from the
+catalog, so a model it has not heard of falls back to a conservative default.
+Compaction will then trigger earlier than the model actually requires. Set
+`maxContextTokens` in your config to override it.
 
 ---
 
