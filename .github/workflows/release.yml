@@ -61,17 +61,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # merge-multiple flattens every artifact into dist/ directly. Without it
+      # each one lands in a directory named after itself, so the binary sits at
+      # dist/codemon-linux-arm64/codemon-linux-arm64 and any attempt to hoist it
+      # collides with its own parent.
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: dist/
+          merge-multiple: true
 
       - name: Create checksums
         run: |
           cd dist
-          for dir in */; do
-            mv "$dir"* .
-          done
           sha256sum codemon-* > SHA256SUMS
           cat SHA256SUMS
 
