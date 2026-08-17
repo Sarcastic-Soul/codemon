@@ -1,6 +1,13 @@
 # dependencies (bun install)
 node_modules
 
+# Bun is the package manager and bun.lock is the lockfile. A second lockfile
+# from another manager can resolve different versions than the one CI installs
+# from, so the build stops matching what anyone tested.
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
 # output
 out
 dist/
@@ -16,8 +23,8 @@ coverage
 
 # logs
 logs
-_.log
-report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
+*.log
+report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
 # dotenv environment variable files
 .env
@@ -31,8 +38,9 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .cache
 *.tsbuildinfo
 
-# IntelliJ based IDEs
+# Editors
 .idea
+.vscode
 
 # Finder (MacOS) folder config
 .DS_Store
