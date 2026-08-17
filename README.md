@@ -49,8 +49,14 @@ interactively — it's saved to `~/.codemon/config.json` with `0600` permissions
 |---|---|
 | ⚡ **Streaming TUI** | Real-time token streaming, live tool progress, inline diff previews, and permission prompts — all in an Ink-powered React terminal UI. |
 | 🔑 **BYOK, four providers** | Google Gemini, Anthropic Claude, OpenAI, and Mistral. Swap providers or models mid-session with `/connector`; keys never leave your machine. |
-| 🔴 **Poké Ball permission gate** | Every move is classified `read` / `write` / `bash` and checked against your mode before it runs. "Always allow" is remembered for the session, and every decision is written to an audit log. |
-| 🧰 **8 moves** | `read_file`, `write_file`, `edit_file` (fuzzy diff matching), `list_dir`, `bash`, `grep`, `glob`, `spawn_subagent`. |
+| 🔴 **Poké Ball permission gate** | Every move is classified `read` / `write` / `bash` / `network` and checked against your mode before it runs. "Always allow" is remembered for the session, and every decision is written to an audit log. |
+| 🧰 **10 moves** | `read_file`, `write_file`, `edit_file` (fuzzy diff matching), `list_dir`, `bash`, `grep`, `glob`, `spawn_subagent`, `todo_write`, `web_fetch` — plus anything your MCP servers add. |
+| 📝 **Plan mode** | `--plan` or `/plan`: the agent reads, greps and runs read-only shell commands, but every write and remote call is denied at the gate — including tools you already granted "always allow". Orthogonal to your permission mode, so it narrows `safe` and `yolo` alike. |
+| 🔌 **MCP servers** | Declare stdio servers under `mcpServers` in your config; their tools show up as `mcp__<server>__<tool>`. They start in the background and never block the prompt, and a server that fails to come up costs you that server and nothing else. |
+| 🗜️ **Summarising compaction** | At 80% of the context window the oldest turns are summarised rather than dropped, so a long session stops forgetting what it was doing. `/compact` forces it. The transcript in SQLite stays whole either way. |
+| ✅ **Todo tracking** | `todo_write` keeps the checklist for a multi-step task, rendered live in the side panel — agents that do not track a plan drift off it around step four. |
+| 🤖 **Headless runs** | `codemon run "<prompt>"` for CI, git hooks and scripting. Answer on stdout, tool activity on stderr, `--json` for a machine-readable event stream, and distinct exit codes for done / error / turn-budget / denied. |
+| ⚙️ **Custom commands** | Markdown files in `.codemon/commands/` become slash commands; `$ARGUMENTS` is substituted. `/init` writes a `codemon.md` describing your project, which is loaded into the system prompt from then on. |
 | 📕 **Pokédex persistence** | Sessions and messages are saved to SQLite at `.codemon/sessions.db`. Resume with `--continue`, list with `--sessions`, undo a whole session's file changes with `--rewind`. |
 | 🗺️ **Repo indexer** | On startup Codemon scans stack markers, git status, recently modified files, and the file tree, so it knows your project before you type a word. |
 | 👥 **Party members** | `spawn_subagent` hands heavy exploration to an isolated sub-agent with a clean context window. Sub-agents inherit the parent's permission mode and cannot spawn their own. |
