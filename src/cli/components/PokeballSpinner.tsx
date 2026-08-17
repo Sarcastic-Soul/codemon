@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Text } from "ink";
 import { SPINNER_INTERVAL_MS, spinnerFrame } from "../theme.ts";
 

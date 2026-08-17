@@ -1,4 +1,3 @@
-import React from "react";
 import { Box, Text, useInput } from "ink";
 
 interface PermissionPromptProps {
@@ -20,13 +19,19 @@ export function PermissionPrompt({
     else if (input === "a" || input === "A") onDecide("always");
   });
 
-  const levelColor = permissionLevel === "bash" ? "red" : "yellow";
+  const levelColor =
+    permissionLevel === "bash" ? "red"
+    : permissionLevel === "network" ? "magenta"
+    : "yellow";
+
+  // `network` gets its own wording rather than borrowing "write": the question
+  // it is asking is different — not "may this change a file" but "may this
+  // leave the machine".
   const levelLabel =
-    permissionLevel === "bash"
-      ? "DANGEROUS"
-      : permissionLevel === "write"
-      ? "[~] WRITE"
-      : "[=] READ";
+    permissionLevel === "bash" ? "DANGEROUS"
+    : permissionLevel === "network" ? "[>] REMOTE — leaves this machine"
+    : permissionLevel === "write" ? "[~] WRITE"
+    : "[=] READ";
 
   return (
     <Box flexDirection="column" borderStyle="double" borderColor={levelColor} padding={1} marginY={1}>

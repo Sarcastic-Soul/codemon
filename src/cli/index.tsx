@@ -1,29 +1,27 @@
 #!/usr/bin/env bun
-import React from "react";
 import { render } from "ink";
 import { App } from "./app.tsx";
 import { SessionPicker } from "./components/SessionPicker.tsx";
-import { loadConfig } from "../config/load-config.ts";
-import type { CodemonConfig } from "../config/load-config.ts";
-import { SANDBOX_MODES, isSandboxMode } from "../config/defaults.ts";
-import { parseArgs, USAGE } from "./parse-args.ts";
-import { createRegistryProvider, parseModelString, validateApiKey } from "../providers/registry.ts";
-import { setProjectRoot } from "../sandbox/path-jail.ts";
-import { PERMISSION_MODES, isPermissionMode } from "../permissions/rules.ts";
+import { parseArgs, subcommandOf, USAGE } from "./parse-args.ts";
+import { bootstrap, onShutdown } from "../core/bootstrap.ts";
 import { createSession, resumeLastSession, resumeSpecificSession } from "../core/session.ts";
-import { setCurrentProvider } from "../core/provider-instance.ts";
-import { initDb, closeDb } from "../storage/db.ts";
-import {
-  dbGetLastSessionForRegion,
-  dbListSessions,
-} from "../storage/sessions.repo.ts";
+import { closeDb } from "../storage/db.ts";
+import { dbGetLastSessionForRegion, dbListSessions } from "../storage/sessions.repo.ts";
 import type { StoredSession } from "../storage/sessions.repo.ts";
 import { dbGetCheckpoints, dbRestoreCheckpoints } from "../storage/checkpoints.repo.ts";
 import { dbListDecisions } from "../storage/audit.repo.ts";
 import { runEvalSuite } from "../evals/runner.ts";
-import { enableDebug } from "../utils/logger.ts";
+import { loadCustomCommands } from "./commands/custom.ts";
+import { headlessFlags, resolvePrompt, runHeadless } from "./headless.ts";
+import { startMcpServers, stopMcpServers } from "../mcp/index.ts";
+import { installFrameProbe } from "./debug-frames.ts";
 import * as path from "path";
-import * as fs from "fs";
+
+// ─── Repaint probe ────────────────────────────────────────────────────────────
+// Wraps stdout before any Ink root exists, so every frame either root writes is
+// measured. Returns null and costs nothing unless CODEMON_DEBUG_FRAMES is set.
+const frameProbe = installFrameProbe();
+if (frameProbe) process.on("exit", frameProbe.uninstall);
 
 // ─── Parse CLI args ───────────────────────────────────────────────────────────
 // parse-args.ts declares every flag and rejects malformed ones, so nothing below
@@ -42,84 +40,34 @@ if (flags.help || flags.h) {
   process.exit(0);
 }
 
-// ─── Project root ─────────────────────────────────────────────────────────────
-// Resolved before the config is read: the project config files live under the
-// region, so `--region` has to be applied first.
-const projectRoot = path.resolve(typeof flags.region === "string" ? flags.region : process.cwd());
-
-// ─── Build config ─────────────────────────────────────────────────────────────
-const MODE_LIST = PERMISSION_MODES.join(" | ");
-const SANDBOX_LIST = SANDBOX_MODES.join(" | ");
-
-const configOverrides: Partial<CodemonConfig> = {};
-if (isPermissionMode(flags.mode)) configOverrides.permissionMode = flags.mode;
-if (isSandboxMode(flags.sandbox)) configOverrides.sandbox = flags.sandbox;
-if (typeof flags.model === "string") configOverrides.model = flags.model;
-if (flags.debug) configOverrides.debug = true;
-if (flags["no-index"]) configOverrides.repoIndex = false;
-
-const config = loadConfig(configOverrides, { projectRoot });
-
-// The same values can arrive from a config file, which the flag parser never saw.
-if (!isPermissionMode(config.permissionMode)) {
-  console.error(
-    `Unknown permission mode in config: "${config.permissionMode}"\n` +
-      `   Expected one of: ${MODE_LIST}\n` +
-      `   Check ~/.codemon/config.json, codemon.json and .codemon/config.json`,
-  );
+// ─── Bootstrap ────────────────────────────────────────────────────────────────
+// Project root, config, database, gitignore patching and provider — everything
+// both front ends need. Lives in core/bootstrap.ts so `codemon run` can have it
+// without pulling in Ink.
+const booted = bootstrap(flags);
+if (!booted.ok) {
+  console.error(booted.error);
   process.exit(1);
 }
 
-if (!isSandboxMode(config.sandbox)) {
-  console.error(
-    `Unknown sandbox mode in config: "${config.sandbox}"\n` +
-      `   Expected one of: ${SANDBOX_LIST}\n` +
-      `   Check ~/.codemon/config.json, codemon.json and .codemon/config.json`,
-  );
-  process.exit(1);
-}
+const { config, projectRoot, provider, keyError } = booted.value;
 
-if (config.debug) enableDebug();
-
-setProjectRoot(projectRoot);
-process.chdir(projectRoot);
-
-// ─── Init DB ──────────────────────────────────────────────────────────────────
-const dbPath = path.join(projectRoot, ".codemon", "sessions.db");
-initDb(dbPath);
-
-// WAL journaling leaves `-wal` and `-shm` beside the database until the last
-// connection closes, so every exit path goes through here.
-process.on("exit", closeDb);
-for (const signal of ["SIGINT", "SIGTERM"] as const) {
-  process.on(signal, () => {
-    closeDb();
-    process.exit(signal === "SIGINT" ? 130 : 143);
-  });
-}
-
-// Ensure .codemon is in .gitignore, creating the file when absent. Skipped
-// outside a repo rather than writing a stray .gitignore into a directory.
-try {
-  const gitignorePath = path.join(projectRoot, ".gitignore");
-  const existing = fs.existsSync(gitignorePath) ? fs.readFileSync(gitignorePath, "utf8") : null;
-  const insideRepo = existing !== null || fs.existsSync(path.join(projectRoot, ".git"));
-
-  if (insideRepo && !(existing ?? "").includes(".codemon/")) {
-    const needsNewline = existing !== null && existing !== "" && !existing.endsWith("\n");
-    fs.appendFileSync(gitignorePath, `${needsNewline ? "\n" : ""}# Codemon session data\n.codemon/\n`);
-  }
-} catch {
-  // A read-only project root is not a reason to refuse to start.
+// ─── Headless subcommand ──────────────────────────────────────────────────────
+// Ahead of the flag subcommands below because `codemon run` is a different
+// program: it never renders, and its exit code is the whole interface.
+const subcommand = subcommandOf(parsed.args);
+if (subcommand?.name === "run") {
+  const prompt = await resolvePrompt(subcommand.rest);
+  const code = await runHeadless({ boot: booted.value, prompt, ...headlessFlags(flags) });
+  closeDb();
+  process.exit(code);
 }
 
 // ─── Subcommands ──────────────────────────────────────────────────────────────
 
 // --eval: run evaluation benchmark suite
 if (flags.eval) {
-  const { provider: pName } = parseModelString(config.model);
-  const kErr = validateApiKey(pName);
-  if (kErr) { console.error(kErr); process.exit(1); }
+  if (keyError) { console.error(keyError); process.exit(1); }
 
   await runEvalSuite({ model: config.model });
   process.exit(0);
@@ -201,23 +149,28 @@ if (flags.rewind) {
   process.exit(0);
 }
 
-// ─── Validate API key ─────────────────────────────────────────────────────────
-const { provider: providerName } = parseModelString(config.model);
-const keyError = validateApiKey(providerName);
+// ─── Project-local slash commands ─────────────────────────────────────────────
+// Before the render, so `/` completion and /help have them on the first keystroke.
+loadCustomCommands(projectRoot);
 
-let provider: ReturnType<typeof createRegistryProvider> | undefined;
-let initialShowConnector = false;
+// ─── MCP servers ──────────────────────────────────────────────────────────────
+// Deliberately not awaited. `buildToolSet()` runs once per agent turn, so a
+// server that finishes its handshake after the first frame is picked up on the
+// next turn — and a server that hangs never delays the prompt appearing.
+onShutdown(stopMcpServers);
+void startMcpServers(projectRoot).catch(() => {});
 
-if (keyError) {
-  initialShowConnector = true;
-} else {
-  provider = createRegistryProvider({ model: config.model, maxTokens: config.maxTokens });
-  setCurrentProvider(provider, config);
-}
+const initialShowConnector = keyError !== null;
 
 // ─── Session / Session Picker ─────────────────────────────────────────────────
 let resumed = false;
 
+// ─── Why every render() below passes incrementalRendering ─────────────────────
+// Ink's default write path erases and rewrites the whole previous frame every
+// render. Since the root Box is `height={rows}`, that is a full-screen wipe for
+// one changed character — measured at 28 of 30 rows, which is the flicker at the
+// loading-to-reply hand-off. Incremental mode diffs line by line and repaints
+// exactly one, but it is off by default in Ink 7. See repaint.test.tsx.
 if (flags.continue) {
   // --continue: always resume the most recent session, no picker
   const session = resumeLastSession(projectRoot);
@@ -238,7 +191,7 @@ if (flags.continue) {
       resumed={resumed}
       initialShowConnector={initialShowConnector}
     />,
-    { exitOnCtrlC: false },
+    { exitOnCtrlC: false, incrementalRendering: true },
   );
   await waitUntilExit();
   closeDb();
@@ -250,7 +203,6 @@ if (flags.continue) {
   if (pastSessions.length > 0) {
     // ─── Phase 1: Session Picker ─────────────────────────────────────────────
     let pickedSession: StoredSession | null = null;
-    let startNew = false;
 
     await new Promise<void>((resolve) => {
       const { unmount } = render(
@@ -263,12 +215,11 @@ if (flags.continue) {
             resolve();
           }}
           onNew={() => {
-            startNew = true;
             unmount();
             resolve();
           }}
         />,
-        { exitOnCtrlC: true },
+        { exitOnCtrlC: true, incrementalRendering: true },
       );
     });
 
@@ -300,7 +251,7 @@ if (flags.continue) {
       resumed={resumed}
       initialShowConnector={initialShowConnector}
     />,
-    { exitOnCtrlC: false },
+    { exitOnCtrlC: false, incrementalRendering: true },
   );
   await waitUntilExit();
   closeDb();

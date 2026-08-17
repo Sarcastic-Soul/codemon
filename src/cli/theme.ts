@@ -1,14 +1,10 @@
 /**
  * The visual vocabulary: glyphs, the pokéball spinner, and small ASCII art.
  *
- * Everything here is drawn from the geometric and box-drawing blocks rather than
- * from emoji. Emoji render at inconsistent widths across terminals — a two-cell
- * glyph in a one-cell slot shifts every column after it — and they carry their
- * own colour, so they ignore the palette around them. Text glyphs stay one cell
- * wide, take the colour they are given, and sit on the monospace grid.
- *
- * Kept in one module so the iconography can be changed in one place rather than
- * hunted through fifteen components.
+ * Box-drawing and geometric characters rather than emoji, which render at
+ * inconsistent widths (a two-cell glyph in a one-cell slot shifts every column
+ * after it) and carry their own colour. Kept in one module so the iconography
+ * changes in one place rather than across fifteen components.
  */
 
 /**

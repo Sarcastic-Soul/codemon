@@ -1,6 +1,6 @@
 import React from "react";
 import { Box, Text } from "ink";
-import { ToolCallView, type ToolCallEntry } from "./ToolCallView.tsx";
+import { ToolCallView, toolCallViewRows, type ToolCallEntry } from "./ToolCallView.tsx";
 import { DiffView, diffViewRows, type DiffEntry } from "./DiffView.tsx";
 import { GLYPH } from "../theme.ts";
 
@@ -68,10 +68,11 @@ export function estimateMessageRows(message: Message, width: number): number {
     rows += Math.max(1, Math.ceil(line.length / usable));
   }
 
-  // Tool calls render one line each plus a frame; diffs are capped by DiffView.
-  if (message.toolCalls?.length) rows += message.toolCalls.length + 2;
-  // Asked of DiffView rather than guessed: the two disagreeing (12 here, 50
-  // there) is what let a frame grow past the terminal and start scrolling.
+  // Both asked of the component that draws them rather than guessed here. Every
+  // frame overflow so far has been an estimate that disagreed with the render:
+  // diffs once said 12 here and drew 50, and tool calls said one row each while
+  // a finished call draws two.
+  if (message.toolCalls?.length) rows += toolCallViewRows(message.toolCalls);
   for (const diff of message.diffs ?? []) {
     rows += diffViewRows(diff.unified);
   }
@@ -119,6 +120,14 @@ export function maxScrollOffset(messages: Message[]): number {
   return Math.max(0, messages.length - 1);
 }
 
+/**
+ * A scroll banner: its own line plus the gap row the surrounding `gap={1}` puts
+ * above it. Both are truncated rather than wrapped so the cost stays two rows at
+ * any width — the long unwrapped wording used to spend three or four rows that
+ * nothing had reserved, which is enough on its own to overflow the frame.
+ */
+export const BANNER_ROWS = 2;
+
 export function ChatView({
   messages,
   streamingText,
@@ -133,17 +142,31 @@ export function ChatView({
     ? estimateMessageRows({ role: "assistant", content: streamingText }, width)
     : 0;
 
-  const { visible, hidden, start, newer } =
-    maxRows === undefined
-      ? windowMessages(messages, maxVisible)
-      : fitMessages(messages, Math.max(1, maxRows - streamRows), width, scrollOffset);
+  // Whether the "↓ N newer" banner appears is known before fitting, so its rows
+  // come straight off the budget.
+  const newerRows = scrollOffset > 0 && messages.length > 1 ? BANNER_ROWS : 0;
+
+  let win: TranscriptWindow;
+  if (maxRows === undefined) {
+    win = windowMessages(messages, maxVisible);
+  } else {
+    const budget = Math.max(1, maxRows - streamRows - newerRows);
+    // "↑ N earlier" is circular: whether it is drawn depends on the fit, and
+    // drawing it costs rows the fit has already handed out. So fit with the
+    // reservation, and only fit again without it if it turns out unneeded —
+    // which cannot reintroduce hidden messages, since a larger budget never
+    // drops one.
+    win = fitMessages(messages, Math.max(1, budget - BANNER_ROWS), width, scrollOffset);
+    if (win.hidden === 0) win = fitMessages(messages, budget, width, scrollOffset);
+  }
+
+  const { visible, hidden, start, newer } = win;
 
   return (
     <Box flexDirection="column" gap={1}>
       {hidden > 0 && (
-        <Text color="gray" dimColor>
-          ↑ {hidden} earlier message{hidden === 1 ? "" : "s"} — PgUp / ctrl-U to scroll back
-          (all of it is still sent to the model)
+        <Text color="gray" dimColor wrap="truncate">
+          ↑ {hidden} earlier — PgUp/ctrl-U to scroll back
         </Text>
       )}
       {visible.map((msg, i) => (
@@ -156,8 +179,8 @@ export function ChatView({
       )}
       {newer > 0 && (
         // Without this, scrolling up looks like the conversation was lost.
-        <Text color="yellow" dimColor>
-          ↓ {newer} newer message{newer === 1 ? "" : "s"} — PgDn / ctrl-D, or ctrl-G for the latest
+        <Text color="yellow" dimColor wrap="truncate">
+          ↓ {newer} newer — PgDn/ctrl-D · ctrl-G for the latest
         </Text>
       )}
     </Box>

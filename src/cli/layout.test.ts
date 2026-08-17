@@ -8,7 +8,7 @@ const base: LayoutInput = {
   suggestionCount: 0,
   isThinking: false,
   hasReasoning: false,
-  toolCallCount: 0,
+  toolCallRows: 0,
   diffRows: 0,
 };
 
@@ -23,7 +23,7 @@ describe("the frame never exceeds the terminal", () => {
         for (const isThinking of [false, true]) {
           for (const hasReasoning of [false, true]) {
             for (const suggestionCount of [0, 3, 40]) {
-              for (const toolCallCount of [0, 4]) {
+              for (const toolCallRows of [0, 6]) {
                 for (const diffRows of [0, 16]) {
                   const layout = at({
                     rows,
@@ -31,7 +31,7 @@ describe("the frame never exceeds the terminal", () => {
                     isThinking,
                     hasReasoning,
                     suggestionCount,
-                    toolCallCount,
+                    toolCallRows,
                     diffRows,
                   });
 
@@ -64,13 +64,13 @@ describe("the transcript shares the pane with the live turn", () => {
   test("reasoning, tool calls and diffs all come out of the transcript's share", () => {
     const idle = at({});
     expect(at({ hasReasoning: true }).chatRows).toBeLessThan(idle.chatRows);
-    expect(at({ toolCallCount: 4 }).chatRows).toBeLessThan(idle.chatRows);
+    expect(at({ toolCallRows: 6 }).chatRows).toBeLessThan(idle.chatRows);
     expect(at({ diffRows: 16 }).chatRows).toBeLessThan(idle.chatRows);
   });
 
   test("everything drawn inside the pane fits inside the pane", () => {
-    const layout = at({ isThinking: true, hasReasoning: true, toolCallCount: 3, diffRows: 10 });
-    const inside = 2 + 8 + (3 + 2) + 10;
+    const layout = at({ isThinking: true, hasReasoning: true, toolCallRows: 8, diffRows: 10 });
+    const inside = 2 + 8 + 8 + 10;
     expect(layout.chatRows + inside).toBeLessThanOrEqual(layout.paneRows);
   });
 

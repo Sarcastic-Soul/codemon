@@ -1,4 +1,3 @@
-import React from "react";
 import { Box, Text } from "ink";
 import { GLYPH } from "../theme.ts";
 import { PokeballSpinner } from "./PokeballSpinner.tsx";
@@ -17,6 +16,31 @@ export interface ToolCallEntry {
 interface ToolCallViewProps {
   calls: ToolCallEntry[];
 }
+
+/**
+ * Rows one entry draws: its own line, plus the `└ …` line that a finished call
+ * adds for its result or its error.
+ *
+ * Counting one row per call — which both the layout and the transcript estimate
+ * used to do — is right only while the call is still running. The moment it
+ * finishes it becomes two, so every completed tool call was a row of unbudgeted
+ * overflow.
+ */
+export function toolCallRows(call: ToolCallEntry): number {
+  const hasDetail =
+    (call.status === "error" && Boolean(call.error)) ||
+    (call.status === "success" && call.result != null);
+  return 1 + (hasDetail ? 1 : 0);
+}
+
+/** Rows the whole list draws, including its own vertical margins. */
+export function toolCallViewRows(calls: ToolCallEntry[]): number {
+  if (calls.length === 0) return 0;
+  return calls.reduce((n, c) => n + toolCallRows(c), 0) + TOOL_CALL_MARGIN_ROWS;
+}
+
+/** `marginY={1}` on the list: one row above, one below. */
+const TOOL_CALL_MARGIN_ROWS = 2;
 
 export function ToolCallView({ calls }: ToolCallViewProps) {
   if (calls.length === 0) return null;
@@ -38,7 +62,15 @@ function ToolCallItem({ call }: { call: ToolCallEntry }) {
 
   return (
     <Box flexDirection="column" paddingLeft={2} marginBottom={0}>
-      <Box gap={1}>
+      {/* One `Text` for the whole row, not a `Box` of three.
+          A row of separate Texts is laid out by Yoga at each child's natural
+          width, so a long argument summary pushes the row past the pane and Ink
+          breaks it across two lines — with the pieces out of order. Truncation
+          set on the individual children cannot prevent that, because each one is
+          measured before the overflow is known. Composed as a single truncating
+          Text the whole line is measured and cut once, and stays one row at any
+          width, which is what `toolCallRows` promises the layout. */}
+      <Text wrap="truncate">
         {call.status === "running" ? (
           <PokeballSpinner />
         ) : (
@@ -47,18 +79,19 @@ function ToolCallItem({ call }: { call: ToolCallEntry }) {
           </Text>
         )}
         <Text color="yellow" bold>
+          {" "}
           {toolLabel(call.toolName)}
         </Text>
-        <Text color="gray">{argSummary}</Text>
-      </Box>
+        <Text color="gray"> {argSummary}</Text>
+      </Text>
       {call.status === "error" && call.error && (
         <Box paddingLeft={4}>
-          <Text color="red">{GLYPH.branch} {call.error}</Text>
+          <Text color="red" wrap="truncate">{GLYPH.branch} {call.error}</Text>
         </Box>
       )}
       {call.status === "success" && call.result != null && (
         <Box paddingLeft={4}>
-          <Text color="green" dimColor>
+          <Text color="green" dimColor wrap="truncate">
             {GLYPH.branch} {resultSummary(call.toolName, call.result as Record<string, unknown>)}
           </Text>
         </Box>

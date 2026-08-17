@@ -30,8 +30,6 @@ const THINKING_ROWS = 2;
 /** Reasoning header plus `MAX_LINES` of tail, roughly. */
 const REASONING_ROWS = 8;
 
-/** Tool call list: one row each, plus its own margins. */
-const TOOL_CALL_CHROME = 2;
 
 export interface LayoutInput {
   rows: number;
@@ -41,7 +39,12 @@ export interface LayoutInput {
   suggestionCount: number;
   isThinking: boolean;
   hasReasoning: boolean;
-  toolCallCount: number;
+  /**
+   * Rows the live tool-call list will occupy, from `toolCallViewRows` — not the
+   * number of calls. A running call draws one row and a finished one draws two,
+   * so a count under-reserves by one row per completed call.
+   */
+  toolCallRows: number;
   /** Rows the live diffs will occupy, from `diffViewRows`. */
   diffRows: number;
 }
@@ -86,7 +89,7 @@ export function computeLayout(input: LayoutInput): Layout {
   const insideRows =
     (input.isThinking ? THINKING_ROWS : 0) +
     (input.hasReasoning ? REASONING_ROWS : 0) +
-    (input.toolCallCount > 0 ? input.toolCallCount + TOOL_CALL_CHROME : 0) +
+    Math.max(0, input.toolCallRows) +
     Math.max(0, input.diffRows);
 
   // The pane takes whatever the prompt and popup leave. Never below one row —

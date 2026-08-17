@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Box, Text } from "ink";
 import { PokeballSpinner } from "./PokeballSpinner.tsx";
 import { ALL_COMMANDS } from "../commands/index.ts";
@@ -51,7 +51,13 @@ export function ThinkingIndicator({ elapsedSeconds, tipIndex }: ThinkingIndicato
 
   return (
     <Box flexDirection="column" flexShrink={0} paddingLeft={1}>
-      <Box>
+      {/* Each line is a single truncating `Text`, not a `Box` of several.
+          Laid out as a row, the pieces are measured individually and a narrow
+          terminal breaks the line in two with the fragments reordered — at 24
+          columns this drew "12 · ctrl-C to…" above "thinking". As one Text the
+          line is cut once, on the right, and holds the two rows the layout
+          reserves for the indicator. */}
+      <Text wrap="truncate">
         <PokeballSpinner />
         <Text color="yellow" bold>
           {" "}
@@ -61,13 +67,14 @@ export function ThinkingIndicator({ elapsedSeconds, tipIndex }: ThinkingIndicato
           <Text color="gray" dimColor> {elapsedSeconds}s</Text>
         ) : null}
         <Text color="gray" dimColor> · ctrl-C to stop</Text>
-      </Box>
+      </Text>
 
-      <Box>
-        <Text color="gray" dimColor>
-          {GLYPH.info} {tip}
-        </Text>
-      </Box>
+      {/* Truncated for the same reason and one more: the tip rotates, so a long
+          command description wraps where a short one does not, and an unwrapped
+          tip changed the indicator's height every four seconds. */}
+      <Text color="gray" dimColor wrap="truncate">
+        {GLYPH.info} {tip}
+      </Text>
     </Box>
   );
 }

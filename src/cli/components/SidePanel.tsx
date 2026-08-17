@@ -2,11 +2,52 @@ import React from "react";
 import { Box, Text } from "ink";
 import { formatTokenCount } from "../../utils/tokenizer.ts";
 import { GLYPH, MODE_GLYPH, PROVIDER_GLYPH, PANEL_MARK } from "../theme.ts";
+import type { Todo } from "../../core/todo-store.ts";
+
+/** Todo rows the panel will draw before it starts eliding. */
+export const TODO_VISIBLE_ROWS = 5;
+
+/**
+ * Which todos to show when there are more than fit.
+ *
+ * Centred on the work in flight rather than the top of the list: by item nine
+ * the first eight are done and the only interesting row is the current one.
+ */
+export function visibleTodos(todos: Todo[], limit = TODO_VISIBLE_ROWS): Todo[] {
+  if (todos.length <= limit) return todos;
+
+  const active = todos.findIndex((t) => t.status === "in_progress");
+  if (active === -1) {
+    // Nothing running — the next pending items are what matters.
+    const firstPending = todos.findIndex((t) => t.status === "pending");
+    const start = firstPending === -1 ? todos.length - limit : firstPending;
+    return todos.slice(start, start + limit);
+  }
+
+  const start = Math.max(0, Math.min(active - Math.floor(limit / 2), todos.length - limit));
+  return todos.slice(start, start + limit);
+}
+
+const TODO_GLYPH: Record<Todo["status"], string> = {
+  completed: "✓",
+  in_progress: "▸",
+  pending: "○",
+};
+
+const TODO_COLOR: Record<Todo["status"], string> = {
+  completed: "green",
+  in_progress: "yellow",
+  pending: "gray",
+};
 
 interface SidePanelProps {
   model: string;
   region: string;
   permissionMode: string;
+  /** True while the agent may investigate but not change anything. */
+  planMode?: boolean;
+  /** The agent's checklist, if it has written one. */
+  todos?: Todo[];
   /** What the history currently occupies — the number truncation acts on. */
   contextTokens: number;
   /** The budget that same truncation measures against. */
@@ -83,6 +124,8 @@ export const SidePanel = React.memo(function SidePanel({
   model,
   region,
   permissionMode,
+  planMode = false,
+  todos = [],
   contextTokens,
   maxContextTokens,
   spentTokens,
@@ -142,12 +185,15 @@ export const SidePanel = React.memo(function SidePanel({
         {providerPart ? <Text dimColor color="gray">{providerPart}</Text> : null}
       </Box>
 
-      {/* Mode */}
+      {/* Mode. Plan mode is a second line rather than a replacement: it is an
+          independent axis, and the permission mode still governs everything it
+          does not deny outright. */}
       <Row label={`${GLYPH.section} mode`}>
         <Box gap={1}>
           <Text color={modeColor}>{modeGlyph}</Text>
           <Text color={modeColor} bold>{permissionMode}</Text>
         </Box>
+        {planMode && <Text color="magenta" bold>[~] PLAN — read only</Text>}
       </Row>
 
       {/* Context occupancy — what the context manager trims on */}
@@ -174,6 +220,20 @@ export const SidePanel = React.memo(function SidePanel({
         {sessionId && <Text dimColor color="gray">{sessionId.slice(0, 8)}…</Text>}
       </Row>
 
+      {/* The agent's checklist, last because the panel clips from the bottom:
+          a variable-height block above the meters would push them off a short
+          terminal, and the meters are what the user reads at a glance. */}
+      {todos.length > 0 && (
+        <Row
+          label={`${GLYPH.section} todos  ${todos.filter((t) => t.status === "completed").length}/${todos.length}`}
+        >
+          {visibleTodos(todos).map((todo, i) => (
+            <Text key={i} color={TODO_COLOR[todo.status]} wrap="truncate">
+              {TODO_GLYPH[todo.status]} {todo.content}
+            </Text>
+          ))}
+        </Row>
+      )}
     </Box>
   );
 });
