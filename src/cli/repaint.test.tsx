@@ -52,6 +52,11 @@ async function linesRepaintedOnOneLineChange(incrementalRendering: boolean): Pro
     exitOnCtrlC: false,
     patchConsole: false,
     incrementalRendering,
+    // Forced, not inferred. Ink treats CI as non-interactive and writes only
+    // the final frame at unmount, so under CI every measurement here is 0 and
+    // the incremental assertion passes for the wrong reason. The fake terminal
+    // already decides what environment this is; this is the input it missed.
+    interactive: true,
   });
 
   await new Promise((r) => setTimeout(r, 80));
