@@ -68,14 +68,16 @@ import { initCommand } from "./init.ts";
  * Commands compiled into the binary. Kept separate from `ALL_COMMANDS` because
  * a project-local markdown file must never be able to redefine `/exit`.
  */
+// Order is what a bare `/` shows, so the command a newcomer needs comes first
+// and the one that ends the session comes last.
 export const BUILTIN_COMMANDS: SlashCommand[] = [
-  exitCommand,
-  connectorCommand,
   helpCommand,
-  clearCommand,
-  compactCommand,
+  connectorCommand,
   planCommand,
+  compactCommand,
   initCommand,
+  clearCommand,
+  exitCommand,
 ];
 
 /**

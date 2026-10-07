@@ -13,6 +13,13 @@ export function estimateMessagesTokens(messages: Array<{ content: string | unkno
 }
 
 export function formatTokenCount(count: number): string {
-  if (count >= 1000) return `${(count / 1000).toFixed(1)}k`;
+  // A million-token window read as "1040.4k", which takes a second look to parse.
+  if (count >= 1_000_000) return `${trimZero((count / 1_000_000).toFixed(2))}M`;
+  if (count >= 1000) return `${trimZero((count / 1000).toFixed(1))}k`;
   return String(count);
+}
+
+/** "2.0" → "2", "1.50" → "1.5": a trailing zero is noise in a meter. */
+function trimZero(n: string): string {
+  return n.includes(".") ? n.replace(/\.?0+$/, "") : n;
 }

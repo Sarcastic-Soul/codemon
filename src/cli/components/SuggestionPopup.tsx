@@ -40,6 +40,8 @@ export const SuggestionPopup = React.memo(function SuggestionPopup({
   const { offset, size } = suggestionWindow(suggestions.length, selectedIndex, maxVisibleRows);
   const visible = suggestions.slice(offset, offset + size);
   const kind = suggestions[0]!.kind;
+  const noun = kind === "command" ? "command" : "file";
+  const count = (n: number) => `${n} ${noun}${n === 1 ? "" : "s"}`;
 
   return (
     <Box flexDirection="column" borderStyle="round" borderColor="magenta" paddingX={1} flexShrink={0}>
@@ -64,8 +66,8 @@ export const SuggestionPopup = React.memo(function SuggestionPopup({
       <Box flexShrink={0}>
         <Text color="gray" dimColor>
           {suggestions.length > size
-            ? `${selectedIndex + 1}/${suggestions.length} ${kind === "command" ? "commands" : "files"} · ↑/↓ scroll · Tab accept · Esc dismiss`
-            : `${suggestions.length} ${kind === "command" ? "commands" : "files"} · ↑/↓ move · Tab accept · Esc dismiss`}
+            ? `${selectedIndex + 1}/${count(suggestions.length)} · ↑/↓ scroll · Tab accept · Esc dismiss`
+            : `${count(suggestions.length)} · ↑/↓ move · Tab accept · Esc dismiss`}
         </Text>
       </Box>
     </Box>

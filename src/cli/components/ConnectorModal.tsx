@@ -218,11 +218,11 @@ export function ConnectorModal({ onClose, onSelectProviderModel }: ConnectorModa
 
       {step === "select-provider" && (
         <Box flexDirection="column">
-          <Box marginBottom={1}>
-            <Text bold>Select provider </Text>
-            <Text dimColor>
-              (↑/↓ move · Enter select · ctrl-R clear key · Esc cancel · type to filter)
-            </Text>
+          {/* Title and key help on separate lines: side by side, the help text
+              squeezed the title into a one-word column. */}
+          <Box flexDirection="column" marginBottom={1}>
+            <Text bold>Select provider</Text>
+            <Text dimColor>↑/↓ move · Enter select · ctrl-R clear key · Esc cancel · type to filter</Text>
           </Box>
 
           <Box borderStyle="single" borderColor="gray" paddingX={1} marginBottom={1}>
@@ -233,7 +233,7 @@ export function ConnectorModal({ onClose, onSelectProviderModel }: ConnectorModa
                 setProviderFilter(value);
                 setProviderIndex(0);
               }}
-              placeholder="filter 186 providers…"
+              placeholder={`filter ${providers.length} providers…`}
             />
           </Box>
 
