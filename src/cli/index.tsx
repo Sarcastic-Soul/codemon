@@ -2,7 +2,7 @@
 import { render } from "ink";
 import { App } from "./app.tsx";
 import { SessionPicker } from "./components/SessionPicker.tsx";
-import { parseArgs, subcommandOf, USAGE } from "./parse-args.ts";
+import { parseArgs, subcommandOf, USAGE, VERSION } from "./parse-args.ts";
 import { bootstrap, onShutdown } from "../core/bootstrap.ts";
 import { createSession, resumeLastSession, resumeSpecificSession } from "../core/session.ts";
 import { closeDb } from "../storage/db.ts";
@@ -37,6 +37,11 @@ const { flags } = parsed.args;
 
 if (flags.help || flags.h) {
   console.log(USAGE);
+  process.exit(0);
+}
+
+if (flags.version || flags.v) {
+  console.log(`codemon ${VERSION}`);
   process.exit(0);
 }
 

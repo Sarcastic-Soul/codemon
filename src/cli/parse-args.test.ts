@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { parseArgs, USAGE } from "./parse-args.ts";
+import { parseArgs, USAGE, VERSION } from "./parse-args.ts";
 
 function ok(argv: string[]) {
   const result = parseArgs(argv);
@@ -119,7 +119,7 @@ describe("usage text", () => {
   test("documents every flag the parser accepts", () => {
     for (const flag of ["--region", "--mode", "--model", "--sandbox", "--no-index",
                         "--continue", "--rewind", "--sessions", "--audit", "--eval",
-                        "--debug", "--help"]) {
+                        "--debug", "--help", "--version"]) {
       expect(USAGE).toContain(flag);
     }
   });
@@ -128,5 +128,17 @@ describe("usage text", () => {
     expect(USAGE).toContain("CODEMON_MODEL");
     expect(USAGE).toContain("codemon.json");
     expect(USAGE).toContain("defaultModel");
+  });
+});
+
+describe("--version", () => {
+  test("the long and short spellings both set the flag", () => {
+    expect(ok(["--version"]).flags.version).toBe(true);
+    expect(ok(["-v"]).flags.version).toBe(true);
+  });
+
+  test("VERSION is the package version, so a build cannot report a stale one", async () => {
+    const pkg = await Bun.file(new URL("../../package.json", import.meta.url)).json();
+    expect(VERSION).toBe(pkg.version);
   });
 });

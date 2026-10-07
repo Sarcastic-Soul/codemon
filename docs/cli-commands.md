@@ -46,6 +46,7 @@ codemon [options]
 | `--no-index` | Disables automatic startup repo indexing | Boolean flag | `--no-index` |
 | `--debug` | Enables verbose debug logging to file | Logs saved to `~/.codemon/debug.log` | `--debug` |
 | `--help` / `-h` | Displays CLI help message and exits | Boolean flag | `--help` |
+| `--version` / `-v` | Prints the version and exits | Boolean flag | `--version` |
 
 A flag that takes a value accepts either `--flag value` or `--flag=value`; use the `=` form for a
 value beginning with a dash. A flag left without its value, a value on a boolean flag, an

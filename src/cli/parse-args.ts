@@ -6,6 +6,10 @@
 import { PERMISSION_MODES, isPermissionMode } from "../permissions/rules.ts";
 import { SANDBOX_MODES, isSandboxMode } from "../config/defaults.ts";
 import { ALL_COMMANDS } from "./commands/index.ts";
+// Bun inlines the JSON at compile time, so the binary reports the version it was built from.
+import pkg from "../../package.json" with { type: "json" };
+
+export const VERSION: string = pkg.version;
 
 export type FlagValue = string | true;
 
@@ -28,6 +32,8 @@ const OPTIONAL_VALUE_FLAGS = ["audit"] as const;
 const BOOLEAN_FLAGS = [
   "help",
   "h",
+  "version",
+  "v",
   "debug",
   "no-index",
   "continue",
@@ -90,7 +96,8 @@ Options:
   --audit [id]          Show permission decisions for a session (default: most recent)
   --eval                Run the automated eval suite
   --debug               Enable debug logging to ~/.codemon/debug.log
-  --help                Show this help
+  --help, -h            Show this help
+  --version, -v         Print the version and exit
 
 Headless (codemon run):
   --json                Emit one JSON agent event per line instead of prose
@@ -183,9 +190,13 @@ export function parseArgs(argv: string[]): ParseResult {
       break;
     }
 
-    // The one short flag the docs promise. Everything else is `--long`.
+    // The two short flags the docs promise. Everything else is `--long`.
     if (arg === "-h") {
       flags.help = true;
+      continue;
+    }
+    if (arg === "-v") {
+      flags.version = true;
       continue;
     }
 

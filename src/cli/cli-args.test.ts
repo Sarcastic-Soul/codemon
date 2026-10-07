@@ -59,6 +59,16 @@ describe("--mode validation", () => {
   });
 });
 
+describe("--version", () => {
+  test("prints the version and exits before touching the filesystem", async () => {
+    const { stdout, exitCode, sideEffects } = await runCli(["--version"]);
+
+    expect(exitCode).toBe(0);
+    expect(stdout.trim()).toMatch(/^codemon \d+\.\d+\.\d+$/);
+    expect(sideEffects).toEqual([]);
+  });
+});
+
 describe("flags with a missing value", () => {
   test("--model with nothing after it prints usage instead of a TypeError", async () => {
     const { stderr, exitCode } = await runCli(["--model"]);

@@ -1,6 +1,6 @@
 {
   "name": "codemon",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Your AI coding partner — tools are moves, the LLM is your Codemon",
   "type": "module",
   "bin": {
