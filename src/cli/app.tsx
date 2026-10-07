@@ -4,7 +4,7 @@ import TextInput from "ink-text-input";
 import { ChatView, maxScrollOffset } from "./components/ChatView.tsx";
 import { ToolCallView, toolCallViewRows, type ToolCallEntry } from "./components/ToolCallView.tsx";
 import { DiffView, diffViewRows, DIFF_MAX_LINES, type DiffEntry } from "./components/DiffView.tsx";
-import { PermissionPrompt } from "./components/PermissionPrompt.tsx";
+import { PermissionPrompt, permissionPromptRows } from "./components/PermissionPrompt.tsx";
 import { SidePanel } from "./components/SidePanel.tsx";
 import { ConnectorModal, type ConnectorResult } from "./components/ConnectorModal.tsx";
 import { runAgent } from "../core/agent-loop.ts";
@@ -24,7 +24,7 @@ import { Banner } from "./components/Banner.tsx";
 import { ThinkingIndicator } from "./components/ThinkingIndicator.tsx";
 import { ReasoningView } from "./components/ReasoningView.tsx";
 import { useTerminalSize } from "./hooks/use-terminal-size.ts";
-import { computeLayout, SIDE_PANEL_WIDTH } from "./layout.ts";
+import { computeLayout, COMPACT_PANEL_ROWS, SIDE_PANEL_WIDTH } from "./layout.ts";
 import { stampFrame } from "./debug-frames.ts";
 import { buildFileIndex } from "./file-index.ts";
 import {
@@ -302,11 +302,13 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
   }, []);
 
   // Ticks only while a turn is in flight, so an idle session queues no timers.
+  // Paused while a permission prompt waits on the user: that time is theirs.
+  const awaitingPermission = pendingPermission !== null;
   useEffect(() => {
-    if (!isThinking) return;
+    if (!isThinking || awaitingPermission) return;
     const timer = setInterval(() => setElapsedSeconds((n) => n + 1), 1000);
     return () => clearInterval(timer);
-  }, [isThinking]);
+  }, [isThinking, awaitingPermission]);
 
   // Freshen the model catalog in the background, at most once a day. Nothing
   // waits on it: a failure just leaves the last known catalog in place.
@@ -587,6 +589,9 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
   });
 
   const inputHidden = Boolean(pendingPermission) || showConnectorModal;
+  // While a permission prompt is open the turn is waiting on the user, not the
+  // model, so the spinner and its climbing timer would say the wrong thing.
+  const showThinking = isThinking && !pendingPermission;
   // The banner owns the empty screen; the first message replaces it for good.
   const showBanner = messages.length === 0 && streamingText === "" && !isThinking;
 
@@ -608,10 +613,11 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
     columns,
     inputHidden,
     suggestionCount: suggestions.length,
-    isThinking,
+    isThinking: showThinking,
     hasReasoning: reasoningText !== "",
     toolCallRows: toolCallViewRows(liveToolCalls),
     diffRows: liveDiffRows,
+    promptRows: pendingPermission ? permissionPromptRows(pendingPermission.args) : 0,
   });
 
   // Debug only, and a no-op unless CODEMON_DEBUG_FRAMES is set: records what the
@@ -678,7 +684,7 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
             />
           ))}
 
-          {isThinking && <ThinkingIndicator elapsedSeconds={elapsedSeconds} />}
+          {showThinking && <ThinkingIndicator elapsedSeconds={elapsedSeconds} />}
 
           {/* Permission prompt */}
           {pendingPermission && (
@@ -748,6 +754,8 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
           maxContextTokens={contextBudget}
           spentTokens={spentTokens}
           isThinking={isThinking}
+          waiting={Boolean(pendingPermission)}
+          compact={rows < COMPACT_PANEL_ROWS}
           resumed={resumed}
           sessionId={sessionId}
         />

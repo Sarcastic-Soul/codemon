@@ -27,8 +27,23 @@ export const DIFF_MAX_LINES = 12;
  * screen was a row of overflow the layout never reserved.
  */
 export function diffViewRows(unified: string, maxLines: number = DIFF_MAX_LINES): number {
-  const lines = unified.split("\n").length;
+  const lines = diffBodyLines(unified).length;
   return 2 + 1 + 2 + Math.min(lines, maxLines) + (lines > maxLines ? 1 : 0);
+}
+
+/**
+ * The lines worth drawing. `createPatch` opens with an `Index:` line, a rule and
+ * the `---`/`+++` file names, all of which the title above the box already says,
+ * and ends with an empty line. Hunk headers (`@@`) stay: they carry line numbers.
+ */
+export function diffBodyLines(unified: string) {
+  // Only the preamble before the first hunk is dropped. Filtering on `---`
+  // anywhere would also hide a removed line that itself starts with `--`.
+  const all = parseDiffLines(unified);
+  const firstHunk = all.findIndex((dl) => dl.line.startsWith("@@"));
+  const lines = firstHunk === -1 ? all : all.slice(firstHunk);
+  while (lines.length > 0 && lines[lines.length - 1]!.line === "") lines.pop();
+  return lines;
 }
 
 interface DiffViewProps {
@@ -41,7 +56,7 @@ interface DiffViewProps {
 }
 
 export function DiffView({ unified, filePath, fuzzy, maxLines = DIFF_MAX_LINES }: DiffViewProps) {
-  const lines = parseDiffLines(unified);
+  const lines = diffBodyLines(unified);
 
   return (
     <Box flexDirection="column" marginY={1} flexShrink={0}>

@@ -18,6 +18,12 @@ export const SIDE_PANEL_WIDTH = 34;
  */
 export const MIN_COLUMNS_FOR_PANEL = 72;
 
+/**
+ * Below this many rows the side panel drops its logo. The full panel is about
+ * 31 rows tall, so on a 24-row terminal the status section was cut off.
+ */
+export const COMPACT_PANEL_ROWS = 32;
+
 /** Prompt box: two border rows plus the line itself. */
 const INPUT_ROWS = 3;
 
@@ -47,6 +53,8 @@ export interface LayoutInput {
   toolCallRows: number;
   /** Rows the live diffs will occupy, from `diffViewRows`. */
   diffRows: number;
+  /** Rows an open permission prompt occupies, from `permissionPromptRows`. */
+  promptRows?: number;
 }
 
 export interface Layout {
@@ -90,7 +98,8 @@ export function computeLayout(input: LayoutInput): Layout {
     (input.isThinking ? THINKING_ROWS : 0) +
     (input.hasReasoning ? REASONING_ROWS : 0) +
     Math.max(0, input.toolCallRows) +
-    Math.max(0, input.diffRows);
+    Math.max(0, input.diffRows) +
+    Math.max(0, input.promptRows ?? 0);
 
   // The pane takes whatever the prompt and popup leave. Never below one row —
   // a zero-height box would collapse the column and take the prompt with it.

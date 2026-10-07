@@ -61,6 +61,16 @@ describe("the transcript shares the pane with the live turn", () => {
     expect(busy.chatRows).toBe(idle.chatRows - 2); // the transcript yields instead
   });
 
+  test("an open permission prompt takes its rows from the transcript", () => {
+    // Unreserved, the prompt was squeezed in over the transcript and the two
+    // drew on top of each other.
+    const idle = at({ inputHidden: true });
+    const asking = at({ inputHidden: true, promptRows: 10 });
+
+    expect(asking.paneRows).toBe(idle.paneRows);
+    expect(asking.chatRows).toBe(idle.chatRows - 10);
+  });
+
   test("reasoning, tool calls and diffs all come out of the transcript's share", () => {
     const idle = at({});
     expect(at({ hasReasoning: true }).chatRows).toBeLessThan(idle.chatRows);

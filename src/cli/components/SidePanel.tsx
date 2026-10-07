@@ -55,6 +55,10 @@ interface SidePanelProps {
   /** Cumulative prompt + completion tokens billed this session. */
   spentTokens: number;
   isThinking: boolean;
+  /** A permission prompt is open: the turn is paused on the user, not the model. */
+  waiting?: boolean;
+  /** Drop the logo on a short terminal so the status rows stay on screen. */
+  compact?: boolean;
   resumed: boolean;
   sessionId?: string;
 }
@@ -130,6 +134,8 @@ export const SidePanel = React.memo(function SidePanel({
   maxContextTokens,
   spentTokens,
   isThinking,
+  waiting = false,
+  compact = false,
   resumed,
   sessionId,
 }: SidePanelProps) {
@@ -157,13 +163,15 @@ export const SidePanel = React.memo(function SidePanel({
       height="100%"
       overflow="hidden"
     >
-      {/* Title */}
+      {/* Title. The ball is five rows the panel cannot spare on a short
+          terminal, where it pushed status off the bottom. */}
       <Box flexDirection="column" alignItems="center" marginBottom={1} flexShrink={0}>
-        {PANEL_MARK.map((line, i) => (
-          <Text key={i} bold color={i === 1 ? "red" : "gray"}>
-            {line}
-          </Text>
-        ))}
+        {!compact &&
+          PANEL_MARK.map((line, i) => (
+            <Text key={i} bold color={i === 1 ? "red" : "gray"}>
+              {line}
+            </Text>
+          ))}
         <Text bold color="magenta">CODEMON</Text>
       </Box>
 
@@ -214,7 +222,8 @@ export const SidePanel = React.memo(function SidePanel({
 
       {/* Status */}
       <Row label={`${GLYPH.section} status`}>
-        {isThinking && <Text color="yellow">{GLYPH.warn} thinking…</Text>}
+        {isThinking && waiting && <Text color="magenta">{GLYPH.ask} waiting for you</Text>}
+        {isThinking && !waiting && <Text color="yellow">{GLYPH.warn} thinking…</Text>}
         {!isThinking && resumed && <Text color="cyan">{GLYPH.info} resumed</Text>}
         {!isThinking && !resumed && <Text color="green">{GLYPH.ok} ready</Text>}
         {sessionId && <Text dimColor color="gray">{sessionId.slice(0, 8)}…</Text>}

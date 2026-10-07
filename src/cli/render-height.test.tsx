@@ -11,7 +11,8 @@ import { describe, test, expect } from "bun:test";
 import React from "react";
 import { render, Box } from "ink";
 import { EventEmitter } from "events";
-import { DiffView, diffViewRows, DIFF_MAX_LINES } from "./components/DiffView.tsx";
+import { PermissionPrompt, permissionPromptRows } from "./components/PermissionPrompt.tsx";
+import { DiffView, diffBodyLines, diffViewRows, DIFF_MAX_LINES } from "./components/DiffView.tsx";
 import {
   ToolCallView,
   toolCallViewRows,
@@ -35,6 +36,20 @@ class FakeTerminal extends EventEmitter {
   }
 }
 
+/** A TTY stdin, so components that take keys (`useInput`) can mount. */
+class FakeStdin extends EventEmitter {
+  isTTY = true;
+  setRawMode() {}
+  setEncoding() {}
+  ref() {}
+  unref() {}
+  resume() {}
+  pause() {}
+  read() {
+    return null;
+  }
+}
+
 /**
  * Rows a node occupies at `columns` wide.
  *
@@ -45,6 +60,7 @@ function renderedRows(node: React.ReactElement, columns = 50): number {
   const term = new FakeTerminal(columns, 40);
   const instance = render(<Box width={columns} flexDirection="column">{node}</Box>, {
     stdout: term as unknown as NodeJS.WriteStream,
+    stdin: new FakeStdin() as unknown as NodeJS.ReadStream,
     debug: true,
     exitOnCtrlC: false,
     patchConsole: false,
@@ -57,6 +73,46 @@ function renderedRows(node: React.ReactElement, columns = 50): number {
 }
 
 const diffOf = (lines: string[]) => lines.join("\n");
+
+describe("PermissionPrompt draws what permissionPromptRows promises", () => {
+  const cases: Array<[string, Record<string, unknown>]> = [
+    ["no arguments", {}],
+    ["a bash command", { command: "git status --short", allow_network: false }],
+    ["a value far wider than the terminal", { command: "x".repeat(300) }],
+    ["a multi-line value", { content: "line one\nline two\nline three" }],
+    ["more arguments than are shown", { a: 1, b: 2, c: 3, d: 4, e: 5, f: 6, g: 7 }],
+  ];
+
+  for (const [name, args] of cases) {
+    test(name, () => {
+      const node = (
+        <PermissionPrompt toolName="bash" args={args} permissionLevel="bash" onDecide={() => {}} />
+      );
+      expect(renderedRows(node)).toBe(permissionPromptRows(args));
+    });
+  }
+});
+
+describe("diffBodyLines", () => {
+  test("drops the createPatch preamble but keeps the hunk header", () => {
+    const unified = [
+      "Index: file",
+      "===================================================================",
+      "--- file",
+      "+++ file",
+      "@@ -1 +1 @@",
+      "-old",
+      "+new",
+      "",
+    ].join("\n");
+    expect(diffBodyLines(unified).map((dl) => dl.line)).toEqual(["@@ -1 +1 @@", "-old", "+new"]);
+  });
+
+  test("a removed line that starts with -- is still drawn", () => {
+    const unified = ["@@ -1,2 +1 @@", "--- a SQL comment", " keep"].join("\n");
+    expect(diffBodyLines(unified)).toHaveLength(3);
+  });
+});
 
 describe("DiffView draws what diffViewRows promises", () => {
   const cases: Array<[string, string, number?]> = [
