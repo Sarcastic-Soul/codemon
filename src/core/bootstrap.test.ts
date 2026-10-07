@@ -47,6 +47,14 @@ describe("bootstrap", () => {
     expect(result.value.config.planMode).toBe(true);
   });
 
+  test("AI SDK warnings are routed away from the terminal", () => {
+    // A warning printed to the terminal corrupts the Ink frame, so the SDK's
+    // default console logger must be replaced before any request is made.
+    boot();
+    const handler = (globalThis as { AI_SDK_LOG_WARNINGS?: unknown }).AI_SDK_LOG_WARNINGS;
+    expect(typeof handler).toBe("function");
+  });
+
   test("plan mode is off unless asked for", () => {
     const result = boot();
     expect(result.ok && result.value.config.planMode).toBe(false);

@@ -16,7 +16,7 @@ import { createRegistryProvider, parseModelString, validateApiKey } from "../pro
 import { setProjectRoot } from "../sandbox/path-jail.ts";
 import { setCurrentProvider } from "./provider-instance.ts";
 import { initDb, closeDb } from "../storage/db.ts";
-import { enableDebug } from "../utils/logger.ts";
+import { enableDebug, logger } from "../utils/logger.ts";
 import type { Provider } from "../providers/types.ts";
 import type { FlagValue } from "../cli/parse-args.ts";
 
@@ -94,6 +94,21 @@ function patchGitignore(projectRoot: string): void {
   }
 }
 
+/**
+ * The AI SDK prints its warnings (an unsupported setting, a deprecated option)
+ * straight to the terminal. Under Ink that stray line shifts the cursor out from
+ * under the renderer, which then erases the wrong rows and leaves old frames on
+ * screen. In headless mode it lands in the middle of the tool log. Send them to
+ * the debug log instead.
+ */
+export function routeSdkWarnings(): void {
+  (globalThis as { AI_SDK_LOG_WARNINGS?: unknown }).AI_SDK_LOG_WARNINGS = (
+    options: { warnings: unknown[]; provider?: string; model?: string },
+  ) => {
+    logger.warn("AI SDK warnings", options);
+  };
+}
+
 export interface BootstrapOptions {
   /** Skip `process.chdir` and the signal handlers. Used by tests. */
   isolated?: boolean;
@@ -139,6 +154,7 @@ export function bootstrap(
   }
 
   if (config.debug) enableDebug();
+  routeSdkWarnings();
 
   setProjectRoot(projectRoot);
   if (!options.isolated) process.chdir(projectRoot);
