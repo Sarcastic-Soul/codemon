@@ -3,6 +3,7 @@ import { Box, Text } from "ink";
 import { ToolCallView, toolCallViewRows, type ToolCallEntry } from "./ToolCallView.tsx";
 import { DiffView, diffViewRows, type DiffEntry } from "./DiffView.tsx";
 import { GLYPH } from "../theme.ts";
+import { parseMarkdown, type MdLine } from "../markdown.ts";
 
 export interface Message {
   role: "user" | "assistant";
@@ -163,7 +164,10 @@ export function ChatView({
   const { visible, hidden, start, newer } = win;
 
   return (
-    <Box flexDirection="column" gap={1}>
+    // flexShrink=0: if an estimate ever comes up short, the pane clips the
+    // oldest rows off the top. Shrinkable, Yoga squeezed this box instead and
+    // its text spilled over whatever was drawn below it.
+    <Box flexDirection="column" gap={1} flexShrink={0}>
       {hidden > 0 && (
         <Text color="gray" dimColor wrap="truncate">
           ↑ {hidden} earlier — PgUp/ctrl-U to scroll back
@@ -251,12 +255,40 @@ function MessageBubble({
         {streaming ? <Text color="yellow"> ▋</Text> : null}
       </Box>
       <Box paddingLeft={1} flexDirection="column">
-        {lines.map((line, i) => (
-          <Text key={i} wrap="wrap">
-            {line || " "}
-          </Text>
+        {parseMarkdown(content).map((line, i) => (
+          <MarkdownLine key={i} line={line} />
         ))}
       </Box>
     </Box>
+  );
+}
+
+function MarkdownLine({ line }: { line: MdLine }) {
+  if (line.kind === "fence") {
+    return (
+      <Text color="gray" dimColor wrap="truncate">
+        {line.spans[0]!.text || "───"}
+      </Text>
+    );
+  }
+  if (line.kind === "code") {
+    return (
+      <Text color="cyan" wrap="wrap">
+        {line.spans[0]!.text || " "}
+      </Text>
+    );
+  }
+
+  const empty = line.spans.every((span) => span.text === "");
+  return (
+    <Text wrap="wrap" bold={line.kind === "heading"} dimColor={line.kind === "quote"}>
+      {empty
+        ? " "
+        : line.spans.map((span, i) => (
+            <Text key={i} bold={span.bold} color={span.code ? "cyan" : undefined}>
+              {span.text}
+            </Text>
+          ))}
+    </Text>
   );
 }
