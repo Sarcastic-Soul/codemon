@@ -287,7 +287,11 @@ export function App({ provider, config, projectRoot, resumed = false, initialSho
   const acceptSuggestion = useCallback(() => {
     if (!completion || suggestions.length === 0) return false;
     const chosen = suggestions[Math.min(suggestionIndex, suggestions.length - 1)]!;
-    setInput(applyCompletion(input, completion, chosen));
+    const next = applyCompletion(input, completion, chosen);
+    // A command typed out in full has nothing left to complete. Swallowing the
+    // Enter anyway made `/help` take two presses to run.
+    if (completion.kind === "command" && next.trimEnd() === input.trimEnd()) return false;
+    setInput(next);
     return true;
   }, [completion, suggestions, suggestionIndex, input]);
 
