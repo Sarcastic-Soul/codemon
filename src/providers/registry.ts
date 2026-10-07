@@ -102,12 +102,14 @@ export function createRegistryProvider(
               toolCallId: string;
               toolName: string;
               input: Record<string, unknown>;
+              providerMetadata?: Record<string, Record<string, unknown>>;
             };
             yield {
               type: "tool-call",
               toolCallId: tc.toolCallId,
               toolName: tc.toolName,
               toolArgs: tc.input ?? {},
+              providerMetadata: tc.providerMetadata,
             } satisfies StreamEvent;
             break;
           }

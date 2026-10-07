@@ -155,7 +155,12 @@ async function* _agentLoop(
 
     let assistantText = "";
     let streamFailed = false;
-    const pendingToolCalls: Array<{ toolCallId: string; toolName: string; args: Record<string, unknown> }> = [];
+    const pendingToolCalls: Array<{
+      toolCallId: string;
+      toolName: string;
+      args: Record<string, unknown>;
+      providerMetadata?: Record<string, Record<string, unknown>>;
+    }> = [];
 
     for await (const event of provider.streamMessage({ messages, tools, system: systemPrompt, maxTokens: config.maxTokens })) {
       switch (event.type) {
@@ -176,6 +181,7 @@ async function* _agentLoop(
             toolCallId: event.toolCallId!,
             toolName: event.toolName!,
             args: event.toolArgs ?? {},
+            providerMetadata: event.providerMetadata,
           });
           yield { type: "tool-start", toolCallId: event.toolCallId!, toolName: event.toolName!, args: event.toolArgs ?? {} };
           break;
@@ -219,7 +225,16 @@ async function* _agentLoop(
       const assistantContent: Array<unknown> = [];
       if (assistantText) assistantContent.push({ type: "text", text: assistantText });
       for (const tc of pendingToolCalls) {
-        assistantContent.push({ type: "tool-call", toolCallId: tc.toolCallId, toolName: tc.toolName, input: tc.args });
+        // The provider's metadata goes back as `providerOptions`. Gemini 3 signs
+        // each call with a `thoughtSignature`; dropped, every later request
+        // replays unsigned calls and loses the model's reasoning thread.
+        assistantContent.push({
+          type: "tool-call",
+          toolCallId: tc.toolCallId,
+          toolName: tc.toolName,
+          input: tc.args,
+          ...(tc.providerMetadata ? { providerOptions: tc.providerMetadata } : {}),
+        });
       }
       store.addMessage({ role: "assistant", content: assistantContent } as unknown as ModelMessage);
     }

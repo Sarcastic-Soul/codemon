@@ -310,3 +310,32 @@ describe("stream errors", () => {
     expect(toolCallIds(store.getMessages())).toEqual([]);
   });
 });
+
+describe("provider metadata on tool calls", () => {
+  test("a tool call's metadata is replayed as providerOptions", async () => {
+    // Gemini 3 rejects or degrades a replayed call that lost its thoughtSignature.
+    const signature = { google: { thoughtSignature: "sig-123" } };
+    const provider = scriptedProvider([
+      [
+        {
+          type: "tool-call",
+          toolCallId: "call-1",
+          toolName: "todo_write",
+          toolArgs: { todos: [] },
+          providerMetadata: signature,
+        },
+        { type: "finish", finishReason: "tool-calls" },
+      ],
+      [{ type: "text", text: "done" }, { type: "finish", finishReason: "stop" }],
+    ]);
+    const store = createInMemoryStore();
+
+    await runToCompletion("go", provider, config({ permissionMode: "yolo" }), "system", store);
+
+    const parts = store
+      .getMessages()
+      .flatMap((m) => (Array.isArray(m.content) ? (m.content as Array<Record<string, unknown>>) : []));
+    const call = parts.find((p) => p.type === "tool-call");
+    expect(call?.providerOptions).toEqual(signature);
+  });
+});
