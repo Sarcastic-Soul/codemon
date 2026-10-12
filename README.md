@@ -16,6 +16,8 @@ sessions live in your **Pokédex**, the project root is your **Region**, and sub
 
 </div>
 
+https://github.com/user-attachments/assets/f8fe1649-4d15-4b36-813d-3c222afb7a6d
+
 ---
 
 Codemon is a bring-your-own-key coding agent that runs entirely in your terminal. It streams
